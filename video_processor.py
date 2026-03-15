@@ -94,14 +94,22 @@ def download_video(url: str, output_dir: str, callback=None) -> str:
     except ImportError:
         raise ImportError("yt-dlp yuklu degil. 'pip install yt-dlp' calistirin.")
 
+    try:
+        import imageio_ffmpeg
+        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        ffmpeg_path = "ffmpeg"
+
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     out_template = str(Path(output_dir) / "%(title).40s.%(ext)s")
 
     ydl_opts = {
         "outtmpl": out_template,
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/mp4",
         "quiet": True,
         "no_warnings": True,
+        "ffmpeg_location": ffmpeg_path,
+        "merge_output_format": "mp4",
     }
 
     downloaded_path = [None]
@@ -112,20 +120,25 @@ def download_video(url: str, output_dir: str, callback=None) -> str:
             done  = d.get("downloaded_bytes", 0)
             pct   = int(done / total * 50)
             callback(pct, 100, f"İndiriliyor... {pct*2}%")
-        elif d["status"] == "finished":
-            downloaded_path[0] = d["filename"]
 
     ydl_opts["progress_hooks"] = [progress_hook]
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
-        if downloaded_path[0] is None:
-            downloaded_path[0] = ydl.prepare_filename(info)
+        expected = ydl.prepare_filename(info)
 
-    path = downloaded_path[0]
-    if not path.endswith(".mp4"):
-        mp4 = path.rsplit(".", 1)[0] + ".mp4"
-        if os.path.exists(mp4):
-            path = mp4
+    base = os.path.splitext(expected)[0]
+    for ext in [".mp4", ".mkv", ".webm"]:
+        candidate = base + ext
+        if os.path.exists(candidate):
+            return candidate
 
-    return path
+    if os.path.exists(expected):
+        return expected
+
+    for f in sorted(Path(output_dir).glob(f"{Path(base).name}*"),
+                    key=lambda p: p.stat().st_mtime, reverse=True):
+        if f.suffix in (".mp4", ".mkv", ".webm"):
+            return str(f)
+
+    raise FileNotFoundError(f"İndirilen video dosyası bulunamadi: {base}")
