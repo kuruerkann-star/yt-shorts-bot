@@ -163,7 +163,7 @@ class TestCreateVideoNoMoviepy(unittest.TestCase):
         original_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
 
         def fake_import(name, *args, **kwargs):
-            if name == "moviepy.editor":
+            if name == "moviepy":
                 raise ImportError("moviepy yuklu degil")
             return original_import(name, *args, **kwargs)
 

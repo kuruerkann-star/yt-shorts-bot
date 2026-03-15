@@ -177,8 +177,7 @@ class VideoCreator:
                      custom_content: str = "", channel_name: str = "",
                      duration: int = 30, callback=None) -> str:
         try:
-            from moviepy.editor import ImageSequenceClip, AudioFileClip, concatenate_audioclips
-            import moviepy.editor as mpe
+            from moviepy import ImageSequenceClip
         except ImportError:
             raise ImportError("moviepy yuklu degil. Lutfen 'pip install moviepy' calistirin.")
 
@@ -243,7 +242,7 @@ class VideoCreator:
     def add_tts_audio(self, video_path: str, text: str, lang: str = "tr") -> str:
         try:
             from gtts import gTTS
-            from moviepy.editor import VideoFileClip, AudioFileClip
+            from moviepy import VideoFileClip, AudioFileClip
         except ImportError:
             return video_path
 
