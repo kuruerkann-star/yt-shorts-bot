@@ -170,12 +170,12 @@ def replace_animal(input_path: str, output_path: str,
     except ImportError:
         raise ImportError("ultralytics yuklu degil. 'pip install ultralytics' calistirin.")
 
-    from animal_overlays import overlay_on_frame
+    from animal_overlays import overlay_animal_on_frame
 
     if callback:
-        callback(0, 100, "YOLO modeli yukleniyor...")
+        callback(0, 100, "YOLO segmentasyon modeli yukleniyor...")
 
-    model = YOLO("yolov8n.pt")
+    model = YOLO("yolov8n-seg.pt")
     target_ids = SOURCE_ANIMALS.get(source_animal, [15])
 
     cap = cv2.VideoCapture(input_path)
@@ -184,9 +184,8 @@ def replace_animal(input_path: str, output_path: str,
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total  = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    # Buyuk videolari tespit icin kucult (hiz + dogruluk)
-    det_w = min(width, 1280)
-    det_h = int(height * det_w / width)
+    det_w  = min(width, 1280)
+    det_h  = int(height * det_w / width)
     scale_x = width / det_w
     scale_y = height / det_h
 
@@ -202,24 +201,46 @@ def replace_animal(input_path: str, output_path: str,
 
         small = cv2.resize(frame, (det_w, det_h)) if width > 1280 else frame
         results = model(small, verbose=False, conf=confidence)[0]
-        boxes = []
-        for box in results.boxes:
-            cls_id = int(box.cls[0])
-            if cls_id in target_ids:
+
+        detections = []
+        if results.masks is not None:
+            for j, box in enumerate(results.boxes):
+                cls_id = int(box.cls[0])
+                if cls_id not in target_ids:
+                    continue
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
-                # Orijinal boyuta geri olcekle
                 x1 = int(x1 * scale_x); y1 = int(y1 * scale_y)
                 x2 = int(x2 * scale_x); y2 = int(y2 * scale_y)
-                boxes.append((x1, y1, x2, y2))
 
-        if boxes:
-            found_total += len(boxes)
-            frame = overlay_on_frame(frame, boxes, target_animal)
+                # Maskeyi orijinal boyuta getir
+                if j < len(results.masks.data):
+                    mask_small = results.masks.data[j].cpu().numpy()
+                    mask_full  = cv2.resize(
+                        mask_small.astype(np.float32), (width, height),
+                        interpolation=cv2.INTER_LINEAR)
+                else:
+                    mask_full = None
+
+                detections.append((x1, y1, x2, y2, mask_full))
+        else:
+            # Maske yoksa sadece bbox kullan
+            for box in results.boxes:
+                cls_id = int(box.cls[0])
+                if cls_id not in target_ids:
+                    continue
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                x1 = int(x1 * scale_x); y1 = int(y1 * scale_y)
+                x2 = int(x2 * scale_x); y2 = int(y2 * scale_y)
+                detections.append((x1, y1, x2, y2, None))
+
+        if detections:
+            found_total += len(detections)
+            frame = overlay_animal_on_frame(frame, detections, target_animal, i)
 
         out.write(frame)
         i += 1
         if callback and i % 15 == 0:
-            callback(i, total, f"Kare {i}/{total} | Toplam {found_total} tespit")
+            callback(i, total, f"Kare {i}/{total} | {found_total} hayvan degistirildi")
 
     cap.release()
     out.release()
