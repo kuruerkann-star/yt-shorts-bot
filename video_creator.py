@@ -234,7 +234,6 @@ class VideoCreator:
             output_path,
             codec="libx264",
             audio=False,
-            verbose=False,
             logger=None,
             ffmpeg_params=["-crf", "23", "-preset", "fast"],
         )
@@ -264,7 +263,7 @@ class VideoCreator:
             audio = audio.subclip(0, video.duration)
         video = video.set_audio(audio.set_duration(video.duration))
         video.write_videofile(out_path, codec="libx264", audio_codec="aac",
-                              verbose=False, logger=None)
+                              logger=None)
         video.close()
         audio.close()
 
