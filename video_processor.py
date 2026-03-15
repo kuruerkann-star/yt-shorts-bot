@@ -105,7 +105,14 @@ def download_video(url: str, output_dir: str, callback=None) -> str:
 
     ydl_opts = {
         "outtmpl": out_template,
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/mp4",
+        "format": (
+            "bestvideo[height<=1080][ext=mp4][vcodec!*=av01][vcodec!*=av1]"
+            "+bestaudio[ext=m4a]"
+            "/bestvideo[height<=1080][ext=mp4]+bestaudio"
+            "/best[height<=1080][ext=mp4]"
+            "/best[height<=1080]"
+            "/best"
+        ),
         "quiet": True,
         "no_warnings": True,
         "ffmpeg_location": ffmpeg_path,
@@ -165,126 +172,90 @@ def replace_animal(input_path: str, output_path: str,
                    source_animal: str, target_animal: str,
                    confidence: float = 0.20,
                    callback=None) -> str:
-    try:
-        from ultralytics import YOLO
-    except ImportError:
-        raise ImportError("ultralytics yuklu degil. 'pip install ultralytics' calistirin.")
-
+    """
+    Kare farkı ile hareketli nesneyi tespit edip hedef hayvanla değiştirir.
+    Hafıza dostu — PyTorch/YOLO gerektirmez.
+    """
     from animal_overlays import overlay_animal_on_frame
+    import sys
 
-    if callback:
-        callback(0, 100, "Model yukleniyor...")
+    def log(msg):
+        if callback:
+            callback(0, 1, msg)
+        print(msg, flush=True)
 
-    model = YOLO("yolov8n-seg.pt")
-    target_ids = SOURCE_ANIMALS.get(source_animal, [15])
+    log("Video açılıyor...")
 
     cap = cv2.VideoCapture(input_path)
     fps    = cap.get(cv2.CAP_PROP_FPS) or 30
     width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total  = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    log(f"Video: {width}x{height}, {total} kare, {fps:.0f}fps")
 
-    det_w   = min(width, 1280)
-    det_h   = int(height * det_w / width)
-    scale_x = width  / det_w
-    scale_y = height / det_h
+    # Islem icin kucuk boyut
+    pw = min(width,  640)
+    ph = int(height * pw / width)
+    sx = width  / pw
+    sy = height / ph
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    out_w  = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-    # Arka plan cikarici (animasyon + gercek video icin)
-    bg_sub = cv2.createBackgroundSubtractorMOG2(
-        history=60, varThreshold=25, detectShadows=False)
+    ret, prev = cap.read()
+    if not ret:
+        cap.release(); out_w.release()
+        raise RuntimeError("Video okunamadı.")
+    prev_small = cv2.cvtColor(cv2.resize(prev, (pw, ph)), cv2.COLOR_BGR2GRAY)
 
-    # Ilk 30 kareyi arka plan ogrenme icin besle
-    if callback:
-        callback(0, total, "Arka plan ogreniliyor (ilk 30 kare)...")
-    for _ in range(min(30, total)):
-        ret, f = cap.read()
-        if not ret:
-            break
-        s = cv2.resize(f, (det_w, det_h))
-        bg_sub.apply(s)
-    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+    i = 1
+    found = 0
+    out_w.write(prev)  # ilk kare degismeden
 
-    i = 0
-    found_total = 0
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
-        small = cv2.resize(frame, (det_w, det_h))
+        small = cv2.resize(frame, (pw, ph))
+        gray  = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
 
-        # 1. YOLO ile dene
-        yolo_results = model(small, verbose=False, conf=confidence)[0]
+        # Kare farki
+        diff = cv2.absdiff(gray, prev_small)
+        _, thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE,
+                 cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15)))
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN,
+                 cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
+
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        min_area = pw * ph * 0.015
+        big = [c for c in contours if cv2.contourArea(c) > min_area]
+
         detections = []
-
-        if yolo_results.masks is not None:
-            for j, box in enumerate(yolo_results.boxes):
-                if int(box.cls[0]) not in target_ids:
-                    continue
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                x1 = int(x1*scale_x); y1 = int(y1*scale_y)
-                x2 = int(x2*scale_x); y2 = int(y2*scale_y)
-                mask_full = None
-                if j < len(yolo_results.masks.data):
-                    m = yolo_results.masks.data[j].cpu().numpy().astype(np.float32)
-                    mask_full = cv2.resize(m, (width, height), interpolation=cv2.INTER_LINEAR)
-                detections.append((x1, y1, x2, y2, mask_full))
-        else:
-            for box in yolo_results.boxes:
-                if int(box.cls[0]) not in target_ids:
-                    continue
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                x1 = int(x1*scale_x); y1 = int(y1*scale_y)
-                x2 = int(x2*scale_x); y2 = int(y2*scale_y)
-                detections.append((x1, y1, x2, y2, None))
-
-        # 2. YOLO bulamazsa arka plan cikarma ile tespit et
-        if not detections:
-            fg_mask = bg_sub.apply(small)
-            fg_mask = cv2.morphologyEx(
-                fg_mask, cv2.MORPH_CLOSE,
-                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15)))
-            fg_mask = cv2.morphologyEx(
-                fg_mask, cv2.MORPH_OPEN,
-                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (8, 8)))
-
-            contours, _ = cv2.findContours(
-                fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            min_area = det_w * det_h * 0.01  # en az %1 alan
-            big = [c for c in contours if cv2.contourArea(c) > min_area]
-
-            if big:
-                # En büyük hareketi al
-                biggest = max(big, key=cv2.contourArea)
-                bx, by, bw, bh = cv2.boundingRect(biggest)
-                x1 = int(bx * scale_x); y1 = int(by * scale_y)
-                x2 = int((bx+bw)*scale_x); y2 = int((by+bh)*scale_y)
-
-                # Maske oluştur
-                mask_s = np.zeros((det_h, det_w), dtype=np.float32)
-                cv2.drawContours(mask_s, [biggest], -1, 1.0, -1)
-                mask_full = cv2.resize(mask_s, (width, height), interpolation=cv2.INTER_LINEAR)
-                detections.append((x1, y1, x2, y2, mask_full))
-        else:
-            bg_sub.apply(small)  # modeli guncelle
+        if big:
+            biggest = max(big, key=cv2.contourArea)
+            bx, by, bw, bh = cv2.boundingRect(biggest)
+            x1 = int(bx*sx);       y1 = int(by*sy)
+            x2 = int((bx+bw)*sx);  y2 = int((by+bh)*sy)
+            mask_s = np.zeros((ph, pw), dtype=np.float32)
+            cv2.drawContours(mask_s, [biggest], -1, 1.0, -1)
+            mask_full = cv2.resize(mask_s, (width, height), interpolation=cv2.INTER_LINEAR)
+            detections.append((x1, y1, x2, y2, mask_full))
+            found += 1
 
         if detections:
-            found_total += len(detections)
             frame = overlay_animal_on_frame(frame, detections, target_animal, i)
 
-        out.write(frame)
+        out_w.write(frame)
+        prev_small = gray
         i += 1
-        if callback and i % 15 == 0:
-            method = "YOLO" if detections else "BG"
-            callback(i, total, f"Kare {i}/{total} | {found_total} tespit [{method}]")
+        if callback and i % 30 == 0:
+            callback(i, total, f"Kare {i}/{total} | {found} değiştirildi")
 
     cap.release()
-    out.release()
+    out_w.release()
 
     if callback:
-        callback(total, total, f"Tamamlandi! {found_total} hayvan degistirildi.")
-
+        callback(total, total, f"Tamamlandı! {found} karede hayvan değiştirildi.")
     return output_path
