@@ -3,6 +3,7 @@ from tkinter import ttk, scrolledtext, filedialog, messagebox
 import threading
 import json
 import os
+import subprocess
 import webbrowser
 from pathlib import Path
 from typing import Optional, List, Dict
@@ -26,6 +27,8 @@ def load_config() -> Dict:
         "output_dir": "output_videos",
         "video_duration": 30,
         "auto_tts": False,
+        "ai_provider": "openai",
+        "ai_api_key": "",
     }
 
 
@@ -38,8 +41,8 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("YouTube Shorts Bot")
-        self.geometry("1100x780")
-        self.minsize(900, 650)
+        self.geometry("1150x860")
+        self.minsize(950, 700)
         self.configure(bg="#0f0f1a")
         self.config_data = load_config()
         self.trending_results: List[Dict] = []
@@ -56,11 +59,14 @@ class App(tk.Tk):
         fg = "#ffffff"
         accent = "#ff3c78"
         entry_bg = "#1a1a2e"
+        ai_color = "#7c3aed"
         s.configure(".", background=bg, foreground=fg, font=("Segoe UI", 10))
         s.configure("TFrame", background=bg)
         s.configure("TLabel", background=bg, foreground=fg)
         s.configure("TLabelframe", background=bg, foreground=accent, bordercolor=accent)
         s.configure("TLabelframe.Label", background=bg, foreground=accent, font=("Segoe UI", 10, "bold"))
+        s.configure("AI.TLabelframe", background=bg, foreground=ai_color, bordercolor=ai_color)
+        s.configure("AI.TLabelframe.Label", background=bg, foreground=ai_color, font=("Segoe UI", 10, "bold"))
         s.configure("TNotebook", background=bg, borderwidth=0)
         s.configure("TNotebook.Tab", background="#1a1a2e", foreground=fg, padding=[14, 6])
         s.map("TNotebook.Tab", background=[("selected", accent)], foreground=[("selected", fg)])
@@ -70,6 +76,12 @@ class App(tk.Tk):
         s.configure("Accent.TButton", background=accent, foreground=fg,
                     font=("Segoe UI", 10, "bold"), padding=[12, 6])
         s.map("Accent.TButton", background=[("active", "#ff6090")])
+        s.configure("AI.TButton", background=ai_color, foreground=fg,
+                    font=("Segoe UI", 10, "bold"), padding=[12, 6])
+        s.map("AI.TButton", background=[("active", "#9d5cff")])
+        s.configure("Green.TButton", background="#16a34a", foreground=fg,
+                    font=("Segoe UI", 10, "bold"), padding=[12, 6])
+        s.map("Green.TButton", background=[("active", "#22c55e")])
         s.configure("TButton", background="#1a1a2e", foreground=fg, padding=[10, 5])
         s.map("TButton", background=[("active", "#2a2a4e")])
         s.configure("TCheckbutton", background=bg, foreground=fg)
@@ -86,7 +98,7 @@ class App(tk.Tk):
         header.pack(fill="x", padx=0, pady=0)
         tk.Label(header, text="YouTube Shorts Bot",
                  font=("Segoe UI", 18, "bold"), bg="#0f0f1a", fg="#ff3c78").pack(side="left", padx=18, pady=10)
-        tk.Label(header, text="Trend Shorts bul  |  Benzer video olustur  |  YouTube'a yukle",
+        tk.Label(header, text="Trend Shorts bul  |  AI ile video olustur  |  YouTube'a yukle",
                  font=("Segoe UI", 9), bg="#0f0f1a", fg="#888").pack(side="left", padx=4)
 
         sep = tk.Frame(self, height=2, bg="#ff3c78")
@@ -123,7 +135,7 @@ class App(tk.Tk):
         top = ttk.LabelFrame(p, text="Arama Kriterleri", padding=10)
         top.pack(fill="x", pady=(0, 8))
 
-        ttk.Label(top, text="Arama kelimesi (bos birakabilirsiniz):").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ttk.Label(top, text="Arama kelimesi:").grid(row=0, column=0, sticky="w", padx=(0, 8))
         self.search_query = ttk.Entry(top, width=40)
         self.search_query.grid(row=0, column=1, sticky="ew", padx=(0, 12))
 
@@ -133,7 +145,7 @@ class App(tk.Tk):
         self.result_count.grid(row=0, column=3, padx=(0, 12))
 
         self.trend_mode = tk.BooleanVar(value=False)
-        ttk.Checkbutton(top, text="Gunun trendleri (API chart)", variable=self.trend_mode).grid(
+        ttk.Checkbutton(top, text="Gunun trendleri", variable=self.trend_mode).grid(
             row=0, column=4, padx=(0, 12))
 
         ttk.Button(top, text="Ara", style="Accent.TButton", command=self._do_search).grid(
@@ -175,6 +187,30 @@ class App(tk.Tk):
         p = ttk.Frame(self.tab_create)
         p.pack(fill="both", expand=True, padx=14, pady=10)
 
+        # --- AI Paneli ---
+        ai_frame = ttk.LabelFrame(p, text="  Yapay Zeka ile Icerik Olustur", padding=10, style="AI.TLabelframe")
+        ai_frame.pack(fill="x", pady=(0, 8))
+
+        ttk.Label(ai_frame, text="Ne hakkinda bir video olsun?", foreground="#c4b5fd").grid(
+            row=0, column=0, sticky="w", padx=(0, 8))
+        self.ai_prompt = ttk.Entry(ai_frame, width=60)
+        self.ai_prompt.insert(0, "Para kazanma yollari hakkinda viral bir shorts videosu")
+        self.ai_prompt.grid(row=0, column=1, sticky="ew", padx=(0, 10))
+
+        ttk.Label(ai_frame, text="Model:").grid(row=0, column=2, sticky="w", padx=(0, 6))
+        self.ai_provider_var = tk.StringVar(value=self.config_data.get("ai_provider", "openai"))
+        ai_provider_combo = ttk.Combobox(ai_frame, textvariable=self.ai_provider_var,
+                                          values=["openai", "gemini"], width=8, state="readonly")
+        ai_provider_combo.grid(row=0, column=3, padx=(0, 10))
+
+        ttk.Button(ai_frame, text="AI ile Olustur", style="AI.TButton",
+                   command=self._do_ai_generate).grid(row=0, column=4)
+        ai_frame.columnconfigure(1, weight=1)
+
+        self.ai_status = ttk.Label(ai_frame, text="", foreground="#c4b5fd", font=("Segoe UI", 9))
+        self.ai_status.grid(row=1, column=0, columnspan=5, sticky="w", pady=(6, 0))
+
+        # --- Video Bilgileri ---
         meta = ttk.LabelFrame(p, text="Video Bilgileri", padding=10)
         meta.pack(fill="x", pady=(0, 8))
 
@@ -196,7 +232,7 @@ class App(tk.Tk):
 
         content_frame = ttk.LabelFrame(p, text="Icerik (her satir bir metin satiri)", padding=8)
         content_frame.pack(fill="both", expand=True, pady=(0, 8))
-        self.vid_content = scrolledtext.ScrolledText(content_frame, height=8,
+        self.vid_content = scrolledtext.ScrolledText(content_frame, height=7,
                                                       bg="#1a1a2e", fg="white",
                                                       insertbackground="white",
                                                       font=("Segoe UI", 10),
@@ -212,13 +248,16 @@ class App(tk.Tk):
         btn_row.pack(fill="x")
         ttk.Button(btn_row, text="Video Olustur", style="Accent.TButton",
                    command=self._do_create).pack(side="left", padx=(0, 10))
+        self.preview_btn = ttk.Button(btn_row, text="Videoyu Izle", style="Green.TButton",
+                                       command=self._preview_video, state="disabled")
+        self.preview_btn.pack(side="left", padx=(0, 10))
         self.create_path_label = ttk.Label(btn_row, text="", foreground="#aaa")
         self.create_path_label.pack(side="left")
 
         self.create_progress = ttk.Progressbar(p, mode="determinate", maximum=100)
         self.create_progress.pack(fill="x", pady=(8, 0))
 
-        self.create_log = scrolledtext.ScrolledText(p, height=6, bg="#1a1a2e", fg="#ccc",
+        self.create_log = scrolledtext.ScrolledText(p, height=5, bg="#1a1a2e", fg="#ccc",
                                                      font=("Consolas", 9), state="disabled",
                                                      relief="flat")
         self.create_log.pack(fill="x", pady=(6, 0))
@@ -312,22 +351,31 @@ class App(tk.Tk):
         self.cfg_outdir.insert(0, self.config_data.get("output_dir", "output_videos"))
         self.cfg_outdir.grid(row=4, column=1, sticky="w", pady=4, padx=(8, 0))
 
-        ttk.Button(p, text="Ayarlari Kaydet", style="Accent.TButton",
-                   command=self._save_settings).grid(row=5, column=0, columnspan=2,
-                                                      sticky="w", pady=14)
+        sep = tk.Frame(p, height=1, bg="#2a2a4e")
+        sep.grid(row=5, column=0, columnspan=3, sticky="ew", pady=12)
 
-        info = ttk.LabelFrame(p, text="Nasil Kullanilir", padding=10)
-        info.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(10, 0))
-        steps = (
-            "1. Google Cloud Console'dan 'YouTube Data API v3' etkinlestirin.\n"
-            "2. 'API key' olusturup buraya girin.\n"
-            "3. 'OAuth 2.0 Client ID' olusturun, 'client_secret_xxx.json' indirin ve yolu girin.\n"
-            "4. 'Trend Ara' sekmesinde populer Shorts videolarini bulun.\n"
-            "5. Bir video secip 'Video Olustur' sekmesine aktarin, duzenleyip olusturun.\n"
-            "6. 'YouTube'a Yukle' sekmesinde Google hesabinizla giris yapip yukleyin."
-        )
-        ttk.Label(info, text=steps, justify="left", foreground="#aaa",
-                  font=("Segoe UI", 9)).pack(anchor="w")
+        tk.Label(p, text="Yapay Zeka Ayarlari", font=("Segoe UI", 11, "bold"),
+                 bg="#0f0f1a", fg="#7c3aed").grid(row=6, column=0, columnspan=3, sticky="w", pady=(0, 6))
+
+        ttk.Label(p, text="AI Saglayici:").grid(row=7, column=0, sticky="w", pady=4)
+        self.cfg_ai_provider = ttk.Combobox(p, values=["openai", "gemini"], width=12, state="readonly")
+        self.cfg_ai_provider.set(self.config_data.get("ai_provider", "openai"))
+        self.cfg_ai_provider.grid(row=7, column=1, sticky="w", pady=4, padx=(8, 0))
+
+        ttk.Label(p, text="AI API Anahtari:", font=("Segoe UI", 10, "bold")).grid(
+            row=8, column=0, sticky="w", pady=4)
+        self.cfg_ai_key = ttk.Entry(p, width=55, show="*")
+        self.cfg_ai_key.insert(0, self.config_data.get("ai_api_key", ""))
+        self.cfg_ai_key.grid(row=8, column=1, sticky="ew", pady=4, padx=(8, 0))
+
+        ai_info = ttk.Label(p,
+            text="OpenAI: platform.openai.com/api-keys   |   Gemini: aistudio.google.com/apikey",
+            foreground="#666", font=("Segoe UI", 8))
+        ai_info.grid(row=9, column=1, sticky="w", padx=(8, 0))
+
+        ttk.Button(p, text="Ayarlari Kaydet", style="Accent.TButton",
+                   command=self._save_settings).grid(row=10, column=0, columnspan=2,
+                                                      sticky="w", pady=14)
         p.columnconfigure(1, weight=1)
 
     def _log_create(self, msg: str):
@@ -412,7 +460,48 @@ class App(tk.Tk):
         tags = v.get("tags", [])
         self.up_tags.delete(0, "end")
         self.up_tags.insert(0, ", ".join(tags[:8]))
-        self._set_status("Video bilgileri Video Olustur ve Yukle sekmelerine aktarildi.")
+        self._set_status("Video bilgileri aktarildi.")
+
+    def _do_ai_generate(self):
+        prompt = self.ai_prompt.get().strip()
+        if not prompt:
+            messagebox.showwarning("Eksik", "Lutfen bir konu girin.")
+            return
+        ai_key = self.config_data.get("ai_api_key", "").strip()
+        if not ai_key:
+            messagebox.showwarning("AI Anahtari", "Ayarlar sekmesinden AI API anahtarini girin.")
+            return
+        provider = self.ai_provider_var.get()
+
+        self.ai_status.configure(text="AI icerik olusturuyor...", foreground="#c4b5fd")
+        self._set_status("AI ile icerik olusturuluyor...")
+
+        def worker():
+            try:
+                from ai_helper import AIHelper
+                helper = AIHelper(provider=provider, api_key=ai_key)
+                result = helper.generate_video_content(prompt)
+
+                def apply():
+                    self.vid_title.delete(0, "end")
+                    self.vid_title.insert(0, result.get("title", ""))
+                    self.vid_content.delete("1.0", "end")
+                    lines = result.get("content_lines", [])
+                    self.vid_content.insert("1.0", "\n".join(lines))
+                    self.up_title.delete(0, "end")
+                    self.up_title.insert(0, result.get("title", ""))
+                    self.up_desc.delete("1.0", "end")
+                    self.up_desc.insert("1.0", result.get("description", "") + "\n\n" + result.get("hashtags", ""))
+                    self.ai_status.configure(text="AI icerik basariyla olusturuldu!", foreground="#44ff88")
+                    self._set_status("AI icerik olusturuldu.")
+
+                self.after(0, apply)
+            except Exception as e:
+                self.after(0, lambda: self.ai_status.configure(
+                    text=f"Hata: {str(e)[:80]}", foreground="#ff6666"))
+                self.after(0, lambda: self._set_status("AI hatasi: " + str(e)))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _do_create(self):
         title = self.vid_title.get().strip()
@@ -431,6 +520,7 @@ class App(tk.Tk):
         self.create_log.configure(state="disabled")
         self.created_video_path = None
         self.create_path_label.configure(text="")
+        self.preview_btn.configure(state="disabled")
 
         def worker():
             try:
@@ -443,7 +533,7 @@ class App(tk.Tk):
                     self.after(0, lambda: self._log_create(msg))
                     self.after(0, lambda: self._set_status(msg))
 
-                video_data = self.selected_video or {}
+                video_data = dict(self.selected_video) if self.selected_video else {}
                 video_data["title"] = title
                 path = creator.create_video(
                     video_data=video_data,
@@ -462,16 +552,23 @@ class App(tk.Tk):
 
                 self.created_video_path = path
                 self.after(0, lambda: self.create_path_label.configure(
-                    text=f"Kaydedildi: {path}", foreground="#44ff88"))
+                    text=f"Kaydedildi: {Path(path).name}", foreground="#44ff88"))
                 self.after(0, lambda: self.create_progress.configure(value=100))
                 self.after(0, lambda: self._set_status("Video olusturuldu: " + path))
                 self.after(0, lambda: self._log_create(f"Basari! Dosya: {path}"))
+                self.after(0, lambda: self.preview_btn.configure(state="normal"))
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror("Hata", str(e)))
                 self.after(0, lambda: self._set_status("Hata: " + str(e)))
                 self.after(0, lambda: self._log_create("HATA: " + str(e)))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _preview_video(self):
+        if not self.created_video_path or not os.path.exists(self.created_video_path):
+            messagebox.showinfo("Bilgi", "Once bir video olusturun.")
+            return
+        os.startfile(self.created_video_path)
 
     def _browse_video(self):
         path = filedialog.askopenfilename(filetypes=[("MP4 Dosyalari", "*.mp4"), ("Tum Dosyalar", "*.*")])
@@ -561,6 +658,8 @@ class App(tk.Tk):
         self.config_data["channel_name"] = self.cfg_channel.get().strip()
         self.config_data["region_code"] = self.cfg_region.get()
         self.config_data["output_dir"] = self.cfg_outdir.get().strip()
+        self.config_data["ai_provider"] = self.cfg_ai_provider.get()
+        self.config_data["ai_api_key"] = self.cfg_ai_key.get().strip()
         save_config(self.config_data)
         self.vid_channel.delete(0, "end")
         self.vid_channel.insert(0, self.config_data["channel_name"])
