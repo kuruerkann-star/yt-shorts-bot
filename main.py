@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional, Dict
 
 from video_processor import ANIMAL_COLORS, TARGET_COLORS, SOURCE_ANIMALS
-from animal_overlays import ANIMAL_DRAWERS
+from animal_overlays import FRAME_DRAWERS as ANIMAL_DRAWERS
 
 CONFIG_FILE = "config.json"
 

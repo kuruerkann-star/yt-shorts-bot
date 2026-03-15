@@ -173,7 +173,7 @@ def replace_animal(input_path: str, output_path: str,
     from animal_overlays import overlay_animal_on_frame
 
     if callback:
-        callback(0, 100, "YOLO segmentasyon modeli yukleniyor...")
+        callback(0, 100, "Model yukleniyor...")
 
     model = YOLO("yolov8n-seg.pt")
     target_ids = SOURCE_ANIMALS.get(source_animal, [15])
@@ -184,13 +184,28 @@ def replace_animal(input_path: str, output_path: str,
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total  = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    det_w  = min(width, 1280)
-    det_h  = int(height * det_w / width)
-    scale_x = width / det_w
+    det_w   = min(width, 1280)
+    det_h   = int(height * det_w / width)
+    scale_x = width  / det_w
     scale_y = height / det_h
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+    # Arka plan cikarici (animasyon + gercek video icin)
+    bg_sub = cv2.createBackgroundSubtractorMOG2(
+        history=60, varThreshold=25, detectShadows=False)
+
+    # Ilk 30 kareyi arka plan ogrenme icin besle
+    if callback:
+        callback(0, total, "Arka plan ogreniliyor (ilk 30 kare)...")
+    for _ in range(min(30, total)):
+        ret, f = cap.read()
+        if not ret:
+            break
+        s = cv2.resize(f, (det_w, det_h))
+        bg_sub.apply(s)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
     i = 0
     found_total = 0
@@ -199,39 +214,62 @@ def replace_animal(input_path: str, output_path: str,
         if not ret:
             break
 
-        small = cv2.resize(frame, (det_w, det_h)) if width > 1280 else frame
-        results = model(small, verbose=False, conf=confidence)[0]
+        small = cv2.resize(frame, (det_w, det_h))
 
+        # 1. YOLO ile dene
+        yolo_results = model(small, verbose=False, conf=confidence)[0]
         detections = []
-        if results.masks is not None:
-            for j, box in enumerate(results.boxes):
-                cls_id = int(box.cls[0])
-                if cls_id not in target_ids:
+
+        if yolo_results.masks is not None:
+            for j, box in enumerate(yolo_results.boxes):
+                if int(box.cls[0]) not in target_ids:
                     continue
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
-                x1 = int(x1 * scale_x); y1 = int(y1 * scale_y)
-                x2 = int(x2 * scale_x); y2 = int(y2 * scale_y)
-
-                # Maskeyi orijinal boyuta getir
-                if j < len(results.masks.data):
-                    mask_small = results.masks.data[j].cpu().numpy()
-                    mask_full  = cv2.resize(
-                        mask_small.astype(np.float32), (width, height),
-                        interpolation=cv2.INTER_LINEAR)
-                else:
-                    mask_full = None
-
+                x1 = int(x1*scale_x); y1 = int(y1*scale_y)
+                x2 = int(x2*scale_x); y2 = int(y2*scale_y)
+                mask_full = None
+                if j < len(yolo_results.masks.data):
+                    m = yolo_results.masks.data[j].cpu().numpy().astype(np.float32)
+                    mask_full = cv2.resize(m, (width, height), interpolation=cv2.INTER_LINEAR)
                 detections.append((x1, y1, x2, y2, mask_full))
         else:
-            # Maske yoksa sadece bbox kullan
-            for box in results.boxes:
-                cls_id = int(box.cls[0])
-                if cls_id not in target_ids:
+            for box in yolo_results.boxes:
+                if int(box.cls[0]) not in target_ids:
                     continue
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
-                x1 = int(x1 * scale_x); y1 = int(y1 * scale_y)
-                x2 = int(x2 * scale_x); y2 = int(y2 * scale_y)
+                x1 = int(x1*scale_x); y1 = int(y1*scale_y)
+                x2 = int(x2*scale_x); y2 = int(y2*scale_y)
                 detections.append((x1, y1, x2, y2, None))
+
+        # 2. YOLO bulamazsa arka plan cikarma ile tespit et
+        if not detections:
+            fg_mask = bg_sub.apply(small)
+            fg_mask = cv2.morphologyEx(
+                fg_mask, cv2.MORPH_CLOSE,
+                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15)))
+            fg_mask = cv2.morphologyEx(
+                fg_mask, cv2.MORPH_OPEN,
+                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (8, 8)))
+
+            contours, _ = cv2.findContours(
+                fg_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            min_area = det_w * det_h * 0.01  # en az %1 alan
+            big = [c for c in contours if cv2.contourArea(c) > min_area]
+
+            if big:
+                # En büyük hareketi al
+                biggest = max(big, key=cv2.contourArea)
+                bx, by, bw, bh = cv2.boundingRect(biggest)
+                x1 = int(bx * scale_x); y1 = int(by * scale_y)
+                x2 = int((bx+bw)*scale_x); y2 = int((by+bh)*scale_y)
+
+                # Maske oluştur
+                mask_s = np.zeros((det_h, det_w), dtype=np.float32)
+                cv2.drawContours(mask_s, [biggest], -1, 1.0, -1)
+                mask_full = cv2.resize(mask_s, (width, height), interpolation=cv2.INTER_LINEAR)
+                detections.append((x1, y1, x2, y2, mask_full))
+        else:
+            bg_sub.apply(small)  # modeli guncelle
 
         if detections:
             found_total += len(detections)
@@ -240,12 +278,13 @@ def replace_animal(input_path: str, output_path: str,
         out.write(frame)
         i += 1
         if callback and i % 15 == 0:
-            callback(i, total, f"Kare {i}/{total} | {found_total} hayvan degistirildi")
+            method = "YOLO" if detections else "BG"
+            callback(i, total, f"Kare {i}/{total} | {found_total} tespit [{method}]")
 
     cap.release()
     out.release()
 
     if callback:
-        callback(total, total, f"Tamamlandi! Toplam {found_total} hayvan degistirildi.")
+        callback(total, total, f"Tamamlandi! {found_total} hayvan degistirildi.")
 
     return output_path
