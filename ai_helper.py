@@ -30,6 +30,8 @@ class AIHelper:
             return self._call_openai(full_prompt)
         elif self.provider == "gemini":
             return self._call_gemini(full_prompt)
+        elif self.provider == "grok":
+            return self._call_grok(full_prompt)
         else:
             raise ValueError(f"Desteklenmeyen AI saglayici: {self.provider}")
 
@@ -79,6 +81,38 @@ class AIHelper:
                 raise ValueError("OpenAI API anahtari gecersiz. Lutfen gecerli bir anahtar girin.")
             if "429" in err:
                 raise ValueError("OpenAI kota asimi (429). Planınızı kontrol edin veya biraz bekleyin.")
+            raise
+
+    def _call_grok(self, prompt: str) -> Dict:
+        try:
+            from openai import OpenAI
+        except ImportError:
+            raise ImportError("openai paketi yuklu degil. 'pip install openai' calistirin.")
+
+        if not self.api_key:
+            raise ValueError("Grok API anahtari eksik. console.x.ai adresinden alin.")
+
+        try:
+            client = OpenAI(
+                api_key=self.api_key,
+                base_url="https://api.x.ai/v1",
+            )
+            response = client.chat.completions.create(
+                model="grok-3-mini",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.85,
+                max_tokens=700,
+            )
+            return self._parse_response(response.choices[0].message.content.strip())
+        except Exception as e:
+            err = str(e)
+            if "401" in err or "invalid" in err.lower():
+                raise ValueError("Grok API anahtari gecersiz. console.x.ai adresinden kontrol edin.")
+            if "429" in err:
+                raise ValueError("Grok kota asimi (429). Biraz bekleyin.")
             raise
 
     def _call_gemini(self, prompt: str) -> Dict:

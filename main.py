@@ -6,9 +6,6 @@ import os
 from pathlib import Path
 from typing import Optional, Dict
 
-from video_processor import ANIMAL_COLORS, TARGET_COLORS, SOURCE_ANIMALS
-from animal_overlays import FRAME_DRAWERS as ANIMAL_DRAWERS
-
 CONFIG_FILE = "config.json"
 
 
@@ -20,9 +17,10 @@ def load_config() -> Dict:
         except Exception:
             pass
     return {
+        "ai_provider": "grok",
+        "ai_api_key": "",
         "output_dir": "output_videos",
-        "sensitivity": 15,
-        "confidence": 20,
+        "video_duration": 30,
     }
 
 
@@ -34,13 +32,11 @@ def save_config(cfg: Dict):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Hayvan Video Düzenleyici")
-        self.geometry("900x720")
-        self.minsize(780, 580)
+        self.title("YouTube Shorts Bot")
+        self.geometry("900x700")
+        self.minsize(780, 560)
         self.configure(bg="#0f0f1a")
         self.config_data = load_config()
-        self.downloaded_path: Optional[str] = None
-        self.output_path: Optional[str] = None
         self._setup_styles()
         self._build_ui()
 
@@ -72,15 +68,14 @@ class App(tk.Tk):
         s.configure("TButton", background=ENT, foreground=FG, padding=[10, 5])
         s.map("TButton", background=[("active", "#2a2a4e")])
         s.configure("Horizontal.TProgressbar", troughcolor=ENT, background=ACC)
-        s.configure("TScale", background=BG, troughcolor=ENT)
 
     def _build_ui(self):
         hdr = ttk.Frame(self)
         hdr.pack(fill="x")
-        tk.Label(hdr, text="Hayvan Video Düzenleyici",
+        tk.Label(hdr, text="YouTube Shorts Bot",
                  font=("Segoe UI", 17, "bold"), bg="#0f0f1a", fg="#ff3c78"
                  ).pack(side="left", padx=18, pady=10)
-        tk.Label(hdr, text="YouTube URL → renk değiştir veya hayvan değiştir",
+        tk.Label(hdr, text="URL yapıştır veya hikaye yaz → AI ile video oluştur",
                  font=("Segoe UI", 9), bg="#0f0f1a", fg="#666"
                  ).pack(side="left")
         tk.Frame(self, height=2, bg="#ff3c78").pack(fill="x")
@@ -88,17 +83,15 @@ class App(tk.Tk):
         nb = ttk.Notebook(self)
         nb.pack(fill="both", expand=True)
 
-        self.tab_color   = ttk.Frame(nb)
-        self.tab_replace = ttk.Frame(nb)
-        self.tab_cfg     = ttk.Frame(nb)
-        nb.add(self.tab_color,   text="  Renk Değiştir  ")
-        nb.add(self.tab_replace, text="  Hayvan Değiştir  ")
-        nb.add(self.tab_cfg,     text="  Ayarlar  ")
+        self.tab_url   = ttk.Frame(nb)
+        self.tab_story = ttk.Frame(nb)
+        self.tab_cfg   = ttk.Frame(nb)
+        nb.add(self.tab_url,   text="  YouTube URL  ")
+        nb.add(self.tab_story, text="  Hikaye / Metin  ")
+        nb.add(self.tab_cfg,   text="  Ayarlar  ")
 
-        self._build_url_section(self.tab_color,   tag="color")
-        self._build_url_section(self.tab_replace, tag="replace")
-        self._build_color_tab()
-        self._build_replace_tab()
+        self._build_url_tab()
+        self._build_story_tab()
         self._build_settings_tab()
 
         self.status_var = tk.StringVar(value="Hazır")
@@ -106,125 +99,128 @@ class App(tk.Tk):
                  anchor="w", padx=10, font=("Segoe UI", 9)
                  ).pack(fill="x", side="bottom")
 
-    # ---- URL bölümü (her sekmeye ayrı) ----
-    def _build_url_section(self, parent, tag: str):
-        url_frame = ttk.LabelFrame(parent, text="YouTube URL", padding=10)
-        url_frame.pack(fill="x", padx=16, pady=(12, 0))
+    # ── YouTube URL sekmesi ──────────────────────────────────────────────────
+    def _build_url_tab(self):
+        p = ttk.Frame(self.tab_url)
+        p.pack(fill="both", expand=True, padx=16, pady=12)
 
-        ttk.Label(url_frame, text="URL:").grid(row=0, column=0, sticky="w", padx=(0, 8))
-        entry = ttk.Entry(url_frame, width=56)
-        entry.grid(row=0, column=1, sticky="ew", padx=(0, 10))
-        ttk.Button(url_frame, text="Videoyu İndir", style="Accent.TButton",
-                   command=lambda t=tag: self._download(t)).grid(row=0, column=2)
-        url_frame.columnconfigure(1, weight=1)
+        uf = ttk.LabelFrame(p, text="YouTube URL", padding=10)
+        uf.pack(fill="x", pady=(0, 8))
+        ttk.Label(uf, text="URL:").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.url_entry = ttk.Entry(uf, width=60)
+        self.url_entry.grid(row=0, column=1, sticky="ew", padx=(0, 10))
+        ttk.Button(uf, text="Bilgi Getir", style="Accent.TButton",
+                   command=self._fetch_url).grid(row=0, column=2)
+        uf.columnconfigure(1, weight=1)
+        self.url_info_lbl = ttk.Label(uf, text="", foreground="#aaa",
+                                      font=("Segoe UI", 8), wraplength=700)
+        self.url_info_lbl.grid(row=1, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
-        dl_lbl = ttk.Label(url_frame, text="", foreground="#aaa", font=("Segoe UI", 8))
-        dl_lbl.grid(row=1, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        self._build_ai_panel(p, tag="url")
+        self._build_action_row(p, tag="url")
 
-        setattr(self, f"_{tag}_url_entry", entry)
-        setattr(self, f"_{tag}_dl_lbl",   dl_lbl)
-        setattr(self, f"_{tag}_dl_path",  None)
+    # ── Hikaye sekmesi ───────────────────────────────────────────────────────
+    def _build_story_tab(self):
+        p = ttk.Frame(self.tab_story)
+        p.pack(fill="both", expand=True, padx=16, pady=12)
 
-    # ---- Renk değiştir sekmesi ----
-    def _build_color_tab(self):
-        p = ttk.Frame(self.tab_color)
-        p.pack(fill="both", expand=True, padx=16, pady=8)
+        sf = ttk.LabelFrame(p, text="Hikaye / Metin", padding=10)
+        sf.pack(fill="x", pady=(0, 8))
+        ttk.Label(sf, text="Oluşturmak istediğin video fikrini veya hikayeyi yaz:"
+                  ).pack(anchor="w", pady=(0, 4))
+        self.story_text = scrolledtext.ScrolledText(
+            sf, height=5, bg="#1a1a2e", fg="#fff",
+            font=("Segoe UI", 10), insertbackground="white", relief="flat")
+        self.story_text.pack(fill="x")
 
-        cf = ttk.LabelFrame(p, text="Renk Ayarları", padding=10)
-        cf.pack(fill="x", pady=(0, 8))
+        self._build_ai_panel(p, tag="story")
+        self._build_action_row(p, tag="story")
 
-        ttk.Label(cf, text="Hayvan Rengi:").grid(row=0, column=0, sticky="w", padx=(0,10), pady=4)
-        self.color_animal_combo = ttk.Combobox(cf, values=list(ANIMAL_COLORS.keys()),
-                                               width=22, state="readonly")
-        self.color_animal_combo.set(list(ANIMAL_COLORS.keys())[0])
-        self.color_animal_combo.grid(row=0, column=1, sticky="w", pady=4)
+    def _build_ai_panel(self, parent, tag: str):
+        af = ttk.LabelFrame(parent, text="  AI Ayarları (OpenAI / Gemini / Grok)", padding=10)
+        af.pack(fill="x", pady=(0, 8))
 
-        ttk.Label(cf, text="Yeni Renk:").grid(row=0, column=2, sticky="w", padx=(20,10), pady=4)
-        self.color_target_combo = ttk.Combobox(cf, values=list(TARGET_COLORS.keys()),
-                                               width=14, state="readonly")
-        self.color_target_combo.set("Mavi")
-        self.color_target_combo.grid(row=0, column=3, sticky="w", pady=4)
+        ttk.Label(af, text="Tarz / Prompt:").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        prompt_e = ttk.Entry(af, width=55)
+        prompt_e.insert(0, "Viral, eğlenceli, 30 saniyelik Shorts videosu")
+        prompt_e.grid(row=0, column=1, sticky="ew", pady=4)
+        af.columnconfigure(1, weight=1)
 
-        ttk.Label(cf, text="Hassasiyet:").grid(row=1, column=0, sticky="w", padx=(0,10), pady=4)
-        self.sens_var = tk.IntVar(value=self.config_data.get("sensitivity", 15))
-        ttk.Scale(cf, from_=5, to=40, variable=self.sens_var,
-                  orient="horizontal", length=160).grid(row=1, column=1, sticky="w")
-        sens_lbl = ttk.Label(cf, text=str(self.sens_var.get()), foreground="#aaa", width=3)
-        sens_lbl.grid(row=1, column=2, sticky="w", padx=(8,0))
-        self.sens_var.trace_add("write", lambda *_: sens_lbl.configure(text=str(self.sens_var.get())))
+        ttk.Label(af, text="Tema:").grid(row=1, column=0, sticky="w", padx=(0, 8))
+        theme_cb = ttk.Combobox(af, values=[
+            "dark", "neon", "minimal", "retro", "nature", "tech"
+        ], width=14, state="readonly")
+        theme_cb.set("dark")
+        theme_cb.grid(row=1, column=1, sticky="w", pady=4)
 
-        self._build_action_row(p, tag="color", cmd=self._process_color)
+        setattr(self, f"_{tag}_prompt_entry", prompt_e)
+        setattr(self, f"_{tag}_theme_cb", theme_cb)
 
-    # ---- Hayvan değiştir sekmesi ----
-    def _build_replace_tab(self):
-        p = ttk.Frame(self.tab_replace)
-        p.pack(fill="both", expand=True, padx=16, pady=8)
-
-        rf = ttk.LabelFrame(p, text="Hayvan Ayarları", padding=10)
-        rf.pack(fill="x", pady=(0, 8))
-
-        ttk.Label(rf, text="Videodaki Hayvan:").grid(row=0, column=0, sticky="w", padx=(0,10), pady=4)
-        self.src_animal_combo = ttk.Combobox(rf, values=list(SOURCE_ANIMALS.keys()),
-                                             width=20, state="readonly")
-        self.src_animal_combo.set("Kedi")
-        self.src_animal_combo.grid(row=0, column=1, sticky="w", pady=4)
-
-        ttk.Label(rf, text="Yerine Koy:").grid(row=0, column=2, sticky="w", padx=(20,10), pady=4)
-        self.tgt_animal_combo = ttk.Combobox(rf, values=list(ANIMAL_DRAWERS.keys()),
-                                             width=14, state="readonly")
-        self.tgt_animal_combo.set("Tavşan")
-        self.tgt_animal_combo.grid(row=0, column=3, sticky="w", pady=4)
-
-        ttk.Label(rf, text="Güven Eşiği:").grid(row=1, column=0, sticky="w", padx=(0,10), pady=4)
-        self.conf_var = tk.IntVar(value=self.config_data.get("confidence", 20))
-        ttk.Scale(rf, from_=10, to=80, variable=self.conf_var,
-                  orient="horizontal", length=160).grid(row=1, column=1, sticky="w")
-        conf_lbl = ttk.Label(rf, text=f"%{self.conf_var.get()}", foreground="#aaa", width=4)
-        conf_lbl.grid(row=1, column=2, sticky="w", padx=(8,0))
-        self.conf_var.trace_add("write", lambda *_: conf_lbl.configure(text=f"%{self.conf_var.get()}"))
-
-        ttk.Label(rf, text="Düşük = daha fazla tespit, yüksek = daha az yanlış",
-                  foreground="#555", font=("Segoe UI", 8)
-                  ).grid(row=2, column=0, columnspan=4, sticky="w", pady=(2,0))
-
-        self._build_action_row(p, tag="replace", cmd=self._process_replace)
-
-    def _build_action_row(self, parent, tag: str, cmd):
-        btn_row = ttk.Frame(parent)
-        btn_row.pack(fill="x", pady=(0, 6))
-        ttk.Button(btn_row, text="İşlemi Başlat", style="Accent.TButton",
-                   command=cmd).pack(side="left", padx=(0, 10))
-        preview_btn = ttk.Button(btn_row, text="▶  İzle", style="Green.TButton",
-                                 state="disabled",
-                                 command=lambda: self._preview(tag))
+    def _build_action_row(self, parent, tag: str):
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=(0, 6))
+        ttk.Button(row, text="AI ile Script Oluştur", style="Accent.TButton",
+                   command=lambda t=tag: self._generate_script(t)).pack(side="left", padx=(0, 8))
+        ttk.Button(row, text="Video Oluştur", style="Green.TButton",
+                   command=lambda t=tag: self._create_video(t)).pack(side="left", padx=(0, 8))
+        preview_btn = ttk.Button(row, text="▶  İzle", state="disabled",
+                                 command=lambda t=tag: self._preview(t))
         preview_btn.pack(side="left")
         setattr(self, f"_{tag}_preview_btn", preview_btn)
+        setattr(self, f"_{tag}_out_path", None)
+        setattr(self, f"_{tag}_script", None)
 
-        progress = ttk.Progressbar(parent, mode="determinate", maximum=100)
-        progress.pack(fill="x", pady=(0, 4))
-        setattr(self, f"_{tag}_progress", progress)
+        prog = ttk.Progressbar(parent, mode="determinate", maximum=100)
+        prog.pack(fill="x", pady=(0, 4))
+        setattr(self, f"_{tag}_progress", prog)
 
         log = scrolledtext.ScrolledText(parent, height=7, bg="#1a1a2e", fg="#ccc",
                                         font=("Consolas", 8), state="disabled", relief="flat")
         log.pack(fill="both", expand=True)
         setattr(self, f"_{tag}_log", log)
-        setattr(self, f"_{tag}_out_path", None)
 
+    # ── Ayarlar sekmesi ──────────────────────────────────────────────────────
     def _build_settings_tab(self):
         p = ttk.Frame(self.tab_cfg)
         p.pack(fill="both", expand=True, padx=24, pady=20)
-        ttk.Label(p, text="Çıktı klasörü:").grid(row=0, column=0, sticky="w", pady=8)
-        self.cfg_outdir = ttk.Entry(p, width=48)
-        self.cfg_outdir.insert(0, self.config_data.get("output_dir", "output_videos"))
-        self.cfg_outdir.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=8)
+
+        rows = [
+            ("AI Sağlayıcı:",   "cfg_provider",  "combo", ["openai", "gemini", "grok"]),
+            ("AI API Anahtarı:", "cfg_ai_key",    "entry_secret", None),
+            ("Çıktı klasörü:",  "cfg_outdir",    "entry", None),
+            ("Video süresi (sn):", "cfg_duration","entry", None),
+        ]
+        for i, (lbl, attr, kind, opts) in enumerate(rows):
+            ttk.Label(p, text=lbl).grid(row=i, column=0, sticky="w", pady=8)
+            if kind == "combo":
+                w = ttk.Combobox(p, values=opts, width=20, state="readonly")
+                w.set(self.config_data.get("ai_provider", "grok"))
+            elif kind == "entry_secret":
+                w = ttk.Entry(p, width=48, show="*")
+                w.insert(0, self.config_data.get("ai_api_key", ""))
+            else:
+                w = ttk.Entry(p, width=48)
+                val = self.config_data.get(
+                    "output_dir" if "klasör" in lbl else "video_duration", "")
+                w.insert(0, str(val))
+            w.grid(row=i, column=1, sticky="ew", padx=(10, 0), pady=8)
+            setattr(self, attr, w)
+
+        # Grok API key bilgisi
+        info = ttk.LabelFrame(p, text="API Anahtarı Nereden Alınır?", padding=8)
+        info.grid(row=len(rows), column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        ttk.Label(info, text=(
+            "Grok   → console.x.ai  (xAI — ücretsiz $25 kredi)\n"
+            "OpenAI → platform.openai.com/api-keys\n"
+            "Gemini → aistudio.google.com/apikey  (ücretsiz)"
+        ), foreground="#aaa", font=("Segoe UI", 9)).pack(anchor="w")
+
         ttk.Button(p, text="Kaydet", style="Accent.TButton",
-                   command=self._save_settings).grid(row=1, column=0, columnspan=2, sticky="w", pady=10)
+                   command=self._save_settings).grid(
+                   row=len(rows)+1, column=0, columnspan=2, sticky="w", pady=14)
         p.columnconfigure(1, weight=1)
 
-    # ---- Yardımcılar ----
-    def _set_status(self, msg: str):
-        self.status_var.set(msg)
-
+    # ── Yardımcılar ──────────────────────────────────────────────────────────
     def _log(self, tag: str, msg: str):
         box: scrolledtext.ScrolledText = getattr(self, f"_{tag}_log")
         box.configure(state="normal")
@@ -232,114 +228,135 @@ class App(tk.Tk):
         box.see("end")
         box.configure(state="disabled")
 
+    def _set_status(self, msg: str):
+        self.status_var.set(msg)
+
     def _preview(self, tag: str):
         path = getattr(self, f"_{tag}_out_path")
         if path and os.path.exists(path):
             os.startfile(path)
 
-    # ---- İndirme ----
-    def _download(self, tag: str):
-        entry: ttk.Entry = getattr(self, f"_{tag}_url_entry")
-        lbl:   ttk.Label = getattr(self, f"_{tag}_dl_lbl")
-        url = entry.get().strip()
+    def _get_ai(self):
+        from ai_helper import AIHelper
+        return AIHelper(
+            provider=self.config_data.get("ai_provider", "grok"),
+            api_key=self.config_data.get("ai_api_key", ""),
+        )
+
+    # ── URL bilgi getir ───────────────────────────────────────────────────────
+    def _fetch_url(self):
+        url = self.url_entry.get().strip()
         if not url:
             messagebox.showwarning("Eksik", "Bir YouTube URL'si girin.")
             return
-        setattr(self, f"_{tag}_dl_path", None)
-        lbl.configure(text="İndiriliyor...", foreground="#aaa")
-        self._set_status("Video indiriliyor...")
+        self.url_info_lbl.configure(text="Bilgi getiriliyor...", foreground="#aaa")
+        self._url_video_context = None
 
         def worker():
             try:
-                from video_processor import download_video
-                out_dir = self.config_data.get("output_dir", "output_videos")
-
-                def cb(c, t, m):
-                    self.after(0, lambda: lbl.configure(text=m))
-                    self.after(0, lambda: self._set_status(m))
-
-                path = download_video(url, out_dir, callback=cb)
-                setattr(self, f"_{tag}_dl_path", path)
-                name = Path(path).name
-                self.after(0, lambda: lbl.configure(
-                    text=f"İndirildi: {name}", foreground="#44ff88"))
-                self.after(0, lambda: self._set_status("Video indirildi."))
+                from youtube_fetcher import get_video_info
+                info = get_video_info(url)
+                self._url_video_context = info
+                txt = (f"✓  {info.get('title','?')}  |  "
+                       f"{info.get('view_count',0):,} izlenme  |  "
+                       f"{info.get('channel','?')}")
+                self.after(0, lambda: self.url_info_lbl.configure(
+                    text=txt, foreground="#44ff88"))
             except Exception as e:
-                self.after(0, lambda: lbl.configure(
-                    text=f"Hata: {str(e)[:80]}", foreground="#ff6666"))
-                self.after(0, lambda: self._set_status("İndirme hatası."))
-
+                self.after(0, lambda: self.url_info_lbl.configure(
+                    text=f"Hata: {e}", foreground="#ff6666"))
         threading.Thread(target=worker, daemon=True).start()
 
-    # ---- Renk işleme ----
-    def _process_color(self):
-        path = getattr(self, "_color_dl_path")
-        if not path or not os.path.exists(path):
-            messagebox.showwarning("Video Yok", "Önce videoyu indirin.")
+    # ── Script oluştur ───────────────────────────────────────────────────────
+    def _generate_script(self, tag: str):
+        ai_key = self.config_data.get("ai_api_key", "")
+        if not ai_key:
+            messagebox.showwarning("API Anahtarı Eksik",
+                                   "Ayarlar sekmesinden AI API anahtarınızı girin.")
             return
-        animal_color = self.color_animal_combo.get()
-        target_color = self.color_target_combo.get()
-        sensitivity  = self.sens_var.get()
-        self._run_processing(
-            tag="color",
-            src=path,
-            out=path.replace(".mp4", f"_{target_color}.mp4"),
-            fn=lambda src, out, cb: __import__("video_processor").process_video(
-                src, out, animal_color, target_color, sensitivity, cb),
-        )
 
-    # ---- Hayvan değiştirme ----
-    def _process_replace(self):
-        path = getattr(self, "_replace_dl_path")
-        if not path or not os.path.exists(path):
-            messagebox.showwarning("Video Yok", "Önce videoyu indirin.")
-            return
-        src_animal = self.src_animal_combo.get()
-        tgt_animal = self.tgt_animal_combo.get()
-        confidence = self.conf_var.get() / 100.0
-        self._run_processing(
-            tag="replace",
-            src=path,
-            out=path.replace(".mp4", f"_{tgt_animal}.mp4"),
-            fn=lambda src, out, cb: __import__("video_processor").replace_animal(
-                src, out, src_animal, tgt_animal, confidence, cb),
-        )
+        prompt_entry = getattr(self, f"_{tag}_prompt_entry")
+        prompt = prompt_entry.get().strip()
 
-    def _run_processing(self, tag: str, src: str, out: str, fn):
-        progress: ttk.Progressbar = getattr(self, f"_{tag}_progress")
-        preview_btn: ttk.Button   = getattr(self, f"_{tag}_preview_btn")
-        progress["value"] = 0
-        log: scrolledtext.ScrolledText = getattr(self, f"_{tag}_log")
+        if tag == "story":
+            story = self.story_text.get("1.0", "end").strip()
+            if story:
+                prompt = f"{prompt}\n\nHikaye/İçerik:\n{story}"
+
+        video_context = getattr(self, "_url_video_context", None) if tag == "url" else None
+
+        log = getattr(self, f"_{tag}_log")
         log.configure(state="normal"); log.delete("1.0", "end"); log.configure(state="disabled")
-        setattr(self, f"_{tag}_out_path", None)
-        preview_btn.configure(state="disabled")
-        self._set_status("İşleniyor...")
+        self._log(tag, "AI script oluşturuluyor...")
+        self._set_status("AI çalışıyor...")
 
         def worker():
             try:
-                def cb(cur, total, msg):
-                    pct = int(cur / max(total, 1) * 100)
-                    self.after(0, lambda: progress.configure(value=pct))
-                    self.after(0, lambda: self._log(tag, msg))
-                    self.after(0, lambda: self._set_status(msg))
+                result = self._get_ai().generate_video_content(prompt, video_context)
+                setattr(self, f"_{tag}_script", result)
+                self.after(0, lambda: self._log(tag, f"Başlık: {result.get('title','')}"))
+                self.after(0, lambda: self._log(tag, f"İçerik: {len(result.get('content_lines',[]))} satır"))
+                self.after(0, lambda: self._log(tag, "Script hazır → 'Video Oluştur' butonuna bas."))
+                self.after(0, lambda: self._set_status("Script hazır."))
+            except Exception as e:
+                self.after(0, lambda: messagebox.showerror("AI Hatası", str(e)))
+                self.after(0, lambda: self._set_status("Hata."))
+        threading.Thread(target=worker, daemon=True).start()
 
-                result = fn(src, out, cb)
-                setattr(self, f"_{tag}_out_path", result)
+    # ── Video oluştur ────────────────────────────────────────────────────────
+    def _create_video(self, tag: str):
+        script = getattr(self, f"_{tag}_script")
+        if not script:
+            messagebox.showwarning("Script Yok", "Önce 'AI ile Script Oluştur' butonuna bas.")
+            return
+
+        theme    = getattr(self, f"_{tag}_theme_cb").get()
+        duration = int(self.config_data.get("video_duration", 30))
+        out_dir  = self.config_data.get("output_dir", "output_videos")
+        progress: ttk.Progressbar = getattr(self, f"_{tag}_progress")
+        preview_btn = getattr(self, f"_{tag}_preview_btn")
+        progress["value"] = 0
+        preview_btn.configure(state="disabled")
+        setattr(self, f"_{tag}_out_path", None)
+        self._set_status("Video oluşturuluyor...")
+
+        def cb(cur, total, msg):
+            pct = int(cur / max(total, 1) * 100)
+            self.after(0, lambda: progress.configure(value=pct))
+            self.after(0, lambda: self._log(tag, msg))
+            self.after(0, lambda: self._set_status(msg))
+
+        def worker():
+            try:
+                from video_creator import VideoCreator
+                vc = VideoCreator(output_dir=out_dir)
+                path = vc.create_video(
+                    script,
+                    custom_title=script.get("title", ""),
+                    custom_content="\n".join(script.get("content_lines", [])),
+                    channel_name=self.config_data.get("channel_name", ""),
+                    duration=duration,
+                    callback=cb,
+                )
+                setattr(self, f"_{tag}_out_path", path)
                 self.after(0, lambda: progress.configure(value=100))
-                self.after(0, lambda: self._log(tag, f"Tamamlandi → {result}"))
-                self.after(0, lambda: self._set_status("Hazır: " + result))
+                self.after(0, lambda: self._log(tag, f"Tamamlandı → {path}"))
+                self.after(0, lambda: self._set_status("Hazır: " + path))
                 self.after(0, lambda: preview_btn.configure(state="normal"))
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror("Hata", str(e)))
                 self.after(0, lambda: self._log(tag, "HATA: " + str(e)))
                 self.after(0, lambda: self._set_status("Hata oluştu."))
-
         threading.Thread(target=worker, daemon=True).start()
 
     def _save_settings(self):
-        self.config_data["output_dir"]  = self.cfg_outdir.get().strip()
-        self.config_data["sensitivity"] = self.sens_var.get()
-        self.config_data["confidence"]  = self.conf_var.get()
+        self.config_data["ai_provider"]   = self.cfg_provider.get()
+        self.config_data["ai_api_key"]    = self.cfg_ai_key.get().strip()
+        self.config_data["output_dir"]    = self.cfg_outdir.get().strip()
+        try:
+            self.config_data["video_duration"] = int(self.cfg_duration.get())
+        except ValueError:
+            self.config_data["video_duration"] = 30
         save_config(self.config_data)
         messagebox.showinfo("Kaydedildi", "Ayarlar kaydedildi.")
 
