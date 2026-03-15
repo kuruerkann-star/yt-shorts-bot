@@ -266,9 +266,9 @@ def overlay_animal_on_frame(frame_bgr: np.ndarray,
             img_np[mask_np > 128, 3] = 0
             img = PILImage.fromarray(img_np)
 
-        # Animasyon karesini seç
+        # Animasyon karesini seç — max 400px ile sınırla
         w, h = x2 - x1, y2 - y1
-        size = max(int(max(w, h) * 1.3), 60)
+        size = max(min(int(max(w, h) * 1.3), 400), 60)
         frames = get_anim_frames(animal_name, size)
         anim_frame = frames[frame_idx % len(frames)]
 
