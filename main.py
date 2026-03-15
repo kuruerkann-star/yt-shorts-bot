@@ -18,9 +18,8 @@ def load_config() -> Dict:
         except Exception:
             pass
     return {
-        "ai_provider": "nim",
+        "ai_provider": "openai",
         "ai_api_key": "",
-        "nim_model": "meta/llama-3.3-70b-instruct",
         "channel_name": "",
         "output_dir": "output_videos",
         "video_duration": 30,
@@ -167,7 +166,7 @@ class App(tk.Tk):
         prefix = source  # "url" or "story"
 
         # AI paneli
-        ai_frame = ttk.LabelFrame(parent, text="  Yapay Zeka (NIM / OpenAI / Gemini)",
+        ai_frame = ttk.LabelFrame(parent, text="  Yapay Zeka (OpenAI / Gemini)",
                                    padding=10, style="AI.TLabelframe")
         ai_frame.pack(fill="x", pady=(0, 8))
 
@@ -251,12 +250,11 @@ class App(tk.Tk):
         p = ttk.Frame(self.tab_cfg)
         p.pack(fill="both", expand=True, padx=24, pady=20)
 
-        from ai_helper import NIM_MODELS
+        from ai_helper import AIHelper
 
         rows = [
-            ("AI Sağlayıcı:", "cfg_provider",  "combo", ["openai","gemini","nim"]),
+            ("AI Sağlayıcı:", "cfg_provider",  "combo", ["openai","gemini"]),
             ("AI API Anahtarı:", "cfg_ai_key",  "entry_secret", None),
-            ("NIM Model:", "cfg_nim_model",     "combo", NIM_MODELS),
             ("Kanal adı:", "cfg_channel",       "entry", None),
             ("Çıktı klasörü:", "cfg_outdir",    "entry", None),
         ]
@@ -283,8 +281,7 @@ class App(tk.Tk):
         self._cfg_widgets = widgets
 
         ttk.Label(p, text="OpenAI → platform.openai.com/api-keys\n"
-                          "Gemini → aistudio.google.com/apikey\n"
-                          "NIM    → build.nvidia.com  (ücretsiz kredi mevcut)",
+                          "Gemini → aistudio.google.com/apikey",
                   foreground="#555", font=("Segoe UI", 8), justify="left"
                   ).grid(row=len(rows), column=1, sticky="w", padx=(10, 0), pady=(4, 12))
 
@@ -345,8 +342,7 @@ class App(tk.Tk):
     def _do_ai(self, source: str, prompt_entry: ttk.Entry):
         prompt  = prompt_entry.get().strip()
         ai_key  = self.config_data.get("ai_api_key", "").strip()
-        provider = self.config_data.get("ai_provider", "nim")
-        nim_model = self.config_data.get("nim_model", "meta/llama-3.3-70b-instruct")
+        provider = self.config_data.get("ai_provider", "openai")
 
         if not ai_key:
             messagebox.showwarning("API Anahtarı", "Ayarlar sekmesinden AI API anahtarınızı girin.")
@@ -373,8 +369,7 @@ class App(tk.Tk):
         def worker():
             try:
                 from ai_helper import AIHelper
-                result = AIHelper(provider=provider, api_key=ai_key,
-                                  nim_model=nim_model
+                result = AIHelper(provider=provider, api_key=ai_key
                                   ).generate_video_content(prompt, video_context=video_context)
 
                 title_w: ttk.Entry = getattr(self, f"_{source}_title")
@@ -455,7 +450,6 @@ class App(tk.Tk):
         cfg_map = {
             "cfg_provider":  "ai_provider",
             "cfg_ai_key":    "ai_api_key",
-            "cfg_nim_model": "nim_model",
             "cfg_channel":   "channel_name",
             "cfg_outdir":    "output_dir",
         }

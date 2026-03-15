@@ -18,22 +18,10 @@ SYSTEM_PROMPT = (
     "}"
 )
 
-NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
-
-NIM_MODELS = [
-    "meta/llama-3.3-70b-instruct",
-    "mistralai/mistral-large-2-instruct",
-    "google/gemma-3-27b-it",
-    "nvidia/llama-3.1-nemotron-70b-instruct",
-]
-
-
 class AIHelper:
-    def __init__(self, provider: str = "openai", api_key: str = "",
-                 nim_model: str = "meta/llama-3.3-70b-instruct"):
+    def __init__(self, provider: str = "openai", api_key: str = "", **_):
         self.provider = provider.lower()
         self.api_key = api_key
-        self.nim_model = nim_model or NIM_MODELS[0]
 
     def generate_video_content(self, prompt: str,
                                 video_context: Optional[Dict] = None) -> Dict:
@@ -42,8 +30,6 @@ class AIHelper:
             return self._call_openai(full_prompt)
         elif self.provider == "gemini":
             return self._call_gemini(full_prompt)
-        elif self.provider == "nim":
-            return self._call_nim(full_prompt)
         else:
             raise ValueError(f"Desteklenmeyen AI saglayici: {self.provider}")
 
@@ -75,27 +61,6 @@ class AIHelper:
         client = OpenAI(api_key=self.api_key)
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.85,
-            max_tokens=700,
-        )
-        return self._parse_response(response.choices[0].message.content.strip())
-
-    def _call_nim(self, prompt: str) -> Dict:
-        try:
-            from openai import OpenAI
-        except ImportError:
-            raise ImportError("openai paketi yuklu degil. 'pip install openai' calistirin.")
-
-        client = OpenAI(
-            base_url=NIM_BASE_URL,
-            api_key=self.api_key,
-        )
-        response = client.chat.completions.create(
-            model=self.nim_model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},

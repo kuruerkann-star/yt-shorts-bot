@@ -8,9 +8,8 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 DEFAULTS = {
-    "ai_provider": "nim",
+    "ai_provider": "openai",
     "ai_api_key": "",
-    "nim_model": "meta/llama-3.3-70b-instruct",
     "channel_name": "",
     "output_dir": "output_videos",
     "video_duration": 30,
