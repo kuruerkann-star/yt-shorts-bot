@@ -191,24 +191,41 @@ class App(tk.Tk):
         ai_frame = ttk.LabelFrame(p, text="  Yapay Zeka ile Icerik Olustur", padding=10, style="AI.TLabelframe")
         ai_frame.pack(fill="x", pady=(0, 8))
 
-        ttk.Label(ai_frame, text="Ne hakkinda bir video olsun?", foreground="#c4b5fd").grid(
+        ttk.Label(ai_frame, text="Konu / istek:", foreground="#c4b5fd").grid(
             row=0, column=0, sticky="w", padx=(0, 8))
-        self.ai_prompt = ttk.Entry(ai_frame, width=60)
+        self.ai_prompt = ttk.Entry(ai_frame, width=55)
         self.ai_prompt.insert(0, "Para kazanma yollari hakkinda viral bir shorts videosu")
         self.ai_prompt.grid(row=0, column=1, sticky="ew", padx=(0, 10))
 
-        ttk.Label(ai_frame, text="Model:").grid(row=0, column=2, sticky="w", padx=(0, 6))
+        ttk.Label(ai_frame, text="Saglayici:").grid(row=0, column=2, sticky="w", padx=(0, 6))
         self.ai_provider_var = tk.StringVar(value=self.config_data.get("ai_provider", "openai"))
         ai_provider_combo = ttk.Combobox(ai_frame, textvariable=self.ai_provider_var,
-                                          values=["openai", "gemini"], width=8, state="readonly")
+                                          values=["openai", "gemini", "nim"], width=8, state="readonly")
         ai_provider_combo.grid(row=0, column=3, padx=(0, 10))
+        ai_provider_combo.bind("<<ComboboxSelected>>", self._on_provider_change)
 
         ttk.Button(ai_frame, text="AI ile Olustur", style="AI.TButton",
                    command=self._do_ai_generate).grid(row=0, column=4)
         ai_frame.columnconfigure(1, weight=1)
 
+        nim_row = ttk.Frame(ai_frame)
+        nim_row.grid(row=1, column=0, columnspan=5, sticky="w", pady=(6, 0))
+        self.nim_label = ttk.Label(nim_row, text="NIM Model:", foreground="#c4b5fd")
+        self.nim_label.pack(side="left", padx=(0, 8))
+        from ai_helper import NIM_MODELS
+        self.nim_model_var = tk.StringVar(value=self.config_data.get("nim_model", NIM_MODELS[0]))
+        self.nim_model_combo = ttk.Combobox(nim_row, textvariable=self.nim_model_var,
+                                             values=NIM_MODELS, width=42, state="readonly")
+        self.nim_model_combo.pack(side="left")
+        self._on_provider_change()
+
         self.ai_status = ttk.Label(ai_frame, text="", foreground="#c4b5fd", font=("Segoe UI", 9))
-        self.ai_status.grid(row=1, column=0, columnspan=5, sticky="w", pady=(6, 0))
+        self.ai_status.grid(row=2, column=0, columnspan=5, sticky="w", pady=(4, 0))
+
+        self.ai_context_label = ttk.Label(ai_frame,
+            text="Ipucu: Trend Ara sekmesinden bir video sec — AI o videonun verisini referans alacak.",
+            foreground="#666", font=("Segoe UI", 8))
+        self.ai_context_label.grid(row=3, column=0, columnspan=5, sticky="w")
 
         # --- Video Bilgileri ---
         meta = ttk.LabelFrame(p, text="Video Bilgileri", padding=10)
@@ -358,7 +375,8 @@ class App(tk.Tk):
                  bg="#0f0f1a", fg="#7c3aed").grid(row=6, column=0, columnspan=3, sticky="w", pady=(0, 6))
 
         ttk.Label(p, text="AI Saglayici:").grid(row=7, column=0, sticky="w", pady=4)
-        self.cfg_ai_provider = ttk.Combobox(p, values=["openai", "gemini"], width=12, state="readonly")
+        self.cfg_ai_provider = ttk.Combobox(p, values=["openai", "gemini", "nim"],
+                                             width=12, state="readonly")
         self.cfg_ai_provider.set(self.config_data.get("ai_provider", "openai"))
         self.cfg_ai_provider.grid(row=7, column=1, sticky="w", pady=4, padx=(8, 0))
 
@@ -368,13 +386,19 @@ class App(tk.Tk):
         self.cfg_ai_key.insert(0, self.config_data.get("ai_api_key", ""))
         self.cfg_ai_key.grid(row=8, column=1, sticky="ew", pady=4, padx=(8, 0))
 
+        from ai_helper import NIM_MODELS
+        ttk.Label(p, text="NIM Model:").grid(row=9, column=0, sticky="w", pady=4)
+        self.cfg_nim_model = ttk.Combobox(p, values=NIM_MODELS, width=45, state="readonly")
+        self.cfg_nim_model.set(self.config_data.get("nim_model", NIM_MODELS[0]))
+        self.cfg_nim_model.grid(row=9, column=1, sticky="w", pady=4, padx=(8, 0))
+
         ai_info = ttk.Label(p,
-            text="OpenAI: platform.openai.com/api-keys   |   Gemini: aistudio.google.com/apikey",
+            text="OpenAI: platform.openai.com/api-keys   |   Gemini: aistudio.google.com/apikey   |   NIM: build.nvidia.com",
             foreground="#666", font=("Segoe UI", 8))
-        ai_info.grid(row=9, column=1, sticky="w", padx=(8, 0))
+        ai_info.grid(row=10, column=1, sticky="w", padx=(8, 0))
 
         ttk.Button(p, text="Ayarlari Kaydet", style="Accent.TButton",
-                   command=self._save_settings).grid(row=10, column=0, columnspan=2,
+                   command=self._save_settings).grid(row=11, column=0, columnspan=2,
                                                       sticky="w", pady=14)
         p.columnconfigure(1, weight=1)
 
@@ -462,6 +486,12 @@ class App(tk.Tk):
         self.up_tags.insert(0, ", ".join(tags[:8]))
         self._set_status("Video bilgileri aktarildi.")
 
+    def _on_provider_change(self, _event=None):
+        is_nim = self.ai_provider_var.get() == "nim"
+        state = "normal" if is_nim else "disabled"
+        self.nim_label.configure(foreground="#c4b5fd" if is_nim else "#444")
+        self.nim_model_combo.configure(state="readonly" if is_nim else "disabled")
+
     def _do_ai_generate(self):
         prompt = self.ai_prompt.get().strip()
         if not prompt:
@@ -472,33 +502,47 @@ class App(tk.Tk):
             messagebox.showwarning("AI Anahtari", "Ayarlar sekmesinden AI API anahtarini girin.")
             return
         provider = self.ai_provider_var.get()
+        nim_model = self.nim_model_var.get()
+        video_context = dict(self.selected_video) if self.selected_video else None
 
-        self.ai_status.configure(text="AI icerik olusturuyor...", foreground="#c4b5fd")
+        status_parts = [f"[{provider.upper()}]"]
+        if provider == "nim":
+            status_parts.append(f"({nim_model.split('/')[-1]})")
+        if video_context:
+            status_parts.append(f"Referans: '{video_context.get('title', '')[:40]}...'")
+        self.ai_status.configure(
+            text="  ".join(status_parts) + "  —  AI icerik olusturuyor...",
+            foreground="#c4b5fd"
+        )
         self._set_status("AI ile icerik olusturuluyor...")
 
         def worker():
             try:
                 from ai_helper import AIHelper
-                helper = AIHelper(provider=provider, api_key=ai_key)
-                result = helper.generate_video_content(prompt)
+                helper = AIHelper(provider=provider, api_key=ai_key, nim_model=nim_model)
+                result = helper.generate_video_content(prompt, video_context=video_context)
 
                 def apply():
                     self.vid_title.delete(0, "end")
                     self.vid_title.insert(0, result.get("title", ""))
                     self.vid_content.delete("1.0", "end")
-                    lines = result.get("content_lines", [])
-                    self.vid_content.insert("1.0", "\n".join(lines))
+                    self.vid_content.insert("1.0", "\n".join(result.get("content_lines", [])))
                     self.up_title.delete(0, "end")
                     self.up_title.insert(0, result.get("title", ""))
                     self.up_desc.delete("1.0", "end")
-                    self.up_desc.insert("1.0", result.get("description", "") + "\n\n" + result.get("hashtags", ""))
-                    self.ai_status.configure(text="AI icerik basariyla olusturuldu!", foreground="#44ff88")
+                    desc = result.get("description", "")
+                    tags = result.get("hashtags", "")
+                    self.up_desc.insert("1.0", f"{desc}\n\n{tags}")
+                    self.ai_status.configure(
+                        text="AI icerik basariyla olusturuldu!",
+                        foreground="#44ff88"
+                    )
                     self._set_status("AI icerik olusturuldu.")
 
                 self.after(0, apply)
             except Exception as e:
                 self.after(0, lambda: self.ai_status.configure(
-                    text=f"Hata: {str(e)[:80]}", foreground="#ff6666"))
+                    text=f"Hata: {str(e)[:90]}", foreground="#ff6666"))
                 self.after(0, lambda: self._set_status("AI hatasi: " + str(e)))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -660,6 +704,7 @@ class App(tk.Tk):
         self.config_data["output_dir"] = self.cfg_outdir.get().strip()
         self.config_data["ai_provider"] = self.cfg_ai_provider.get()
         self.config_data["ai_api_key"] = self.cfg_ai_key.get().strip()
+        self.config_data["nim_model"] = self.cfg_nim_model.get()
         save_config(self.config_data)
         self.vid_channel.delete(0, "end")
         self.vid_channel.insert(0, self.config_data["channel_name"])
