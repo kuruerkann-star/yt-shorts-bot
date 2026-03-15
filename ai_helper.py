@@ -19,21 +19,14 @@ SYSTEM_PROMPT = (
 )
 
 class AIHelper:
-    def __init__(self, provider: str = "openai", api_key: str = "", **_):
+    def __init__(self, provider: str = "grok", api_key: str = "", **_):
         self.provider = provider.lower()
         self.api_key = api_key
 
     def generate_video_content(self, prompt: str,
                                 video_context: Optional[Dict] = None) -> Dict:
         full_prompt = self._build_prompt(prompt, video_context)
-        if self.provider == "openai":
-            return self._call_openai(full_prompt)
-        elif self.provider == "gemini":
-            return self._call_gemini(full_prompt)
-        elif self.provider == "grok":
-            return self._call_grok(full_prompt)
-        else:
-            raise ValueError(f"Desteklenmeyen AI saglayici: {self.provider}")
+        return self._call_grok(full_prompt)
 
     def _build_prompt(self, user_prompt: str,
                       video_context: Optional[Dict]) -> str:
@@ -53,35 +46,6 @@ class AIHelper:
             parts.append("=== KULLANICI ISTEGI ===")
         parts.append(user_prompt)
         return "\n".join(parts)
-
-    def _call_openai(self, prompt: str) -> Dict:
-        try:
-            from openai import OpenAI
-        except ImportError:
-            raise ImportError("openai paketi yuklu degil. 'pip install openai' calistirin.")
-
-        if not self.api_key:
-            raise ValueError("OpenAI API anahtari eksik. Ayarlar sekmesinden girin.")
-
-        try:
-            client = OpenAI(api_key=self.api_key)
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.85,
-                max_tokens=700,
-            )
-            return self._parse_response(response.choices[0].message.content.strip())
-        except Exception as e:
-            err = str(e)
-            if "401" in err or "Incorrect API key" in err:
-                raise ValueError("OpenAI API anahtari gecersiz. Lutfen gecerli bir anahtar girin.")
-            if "429" in err:
-                raise ValueError("OpenAI kota asimi (429). Planınızı kontrol edin veya biraz bekleyin.")
-            raise
 
     def _call_grok(self, prompt: str) -> Dict:
         try:
@@ -113,33 +77,6 @@ class AIHelper:
                 raise ValueError("Grok API anahtari gecersiz. console.x.ai adresinden kontrol edin.")
             if "429" in err:
                 raise ValueError("Grok kota asimi (429). Biraz bekleyin.")
-            raise
-
-    def _call_gemini(self, prompt: str) -> Dict:
-        try:
-            from google import genai
-        except ImportError:
-            raise ImportError(
-                "google-genai paketi yuklu degil. 'pip install google-genai' calistirin."
-            )
-
-        if not self.api_key:
-            raise ValueError("Gemini API anahtari eksik. Ayarlar sekmesinden girin.")
-
-        try:
-            client = genai.Client(api_key=self.api_key)
-            full = SYSTEM_PROMPT + "\n\n" + prompt
-            response = client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=full,
-            )
-            return self._parse_response(response.text.strip())
-        except Exception as e:
-            err = str(e)
-            if "401" in err or "API_KEY_INVALID" in err:
-                raise ValueError("Gemini API anahtari gecersiz. Lutfen gecerli bir anahtar girin.")
-            if "429" in err or "RESOURCE_EXHAUSTED" in err:
-                raise ValueError("Gemini kota asimi (429). Biraz bekleyin veya planınızı kontrol edin.")
             raise
 
     def _parse_response(self, raw: str) -> Dict:

@@ -137,7 +137,7 @@ class App(tk.Tk):
         self._build_action_row(p, tag="story")
 
     def _build_ai_panel(self, parent, tag: str):
-        af = ttk.LabelFrame(parent, text="  AI Ayarları (OpenAI / Gemini / Grok)", padding=10)
+        af = ttk.LabelFrame(parent, text="  Grok AI Ayarları", padding=10)
         af.pack(fill="x", pady=(0, 8))
 
         ttk.Label(af, text="Tarz / Prompt:").grid(row=0, column=0, sticky="w", padx=(0, 8))
@@ -185,7 +185,7 @@ class App(tk.Tk):
         p.pack(fill="both", expand=True, padx=24, pady=20)
 
         rows = [
-            ("AI Sağlayıcı:",   "cfg_provider",  "combo", ["openai", "gemini", "grok"]),
+            ("AI Sağlayıcı:",   "cfg_provider",  "combo", ["grok"]),
             ("AI API Anahtarı:", "cfg_ai_key",    "entry_secret", None),
             ("Çıktı klasörü:",  "cfg_outdir",    "entry", None),
             ("Video süresi (sn):", "cfg_duration","entry", None),
@@ -209,11 +209,8 @@ class App(tk.Tk):
         # Grok API key bilgisi
         info = ttk.LabelFrame(p, text="API Anahtarı Nereden Alınır?", padding=8)
         info.grid(row=len(rows), column=0, columnspan=2, sticky="ew", pady=(12, 0))
-        ttk.Label(info, text=(
-            "Grok   → console.x.ai  (xAI — ücretsiz $25 kredi)\n"
-            "OpenAI → platform.openai.com/api-keys\n"
-            "Gemini → aistudio.google.com/apikey  (ücretsiz)"
-        ), foreground="#aaa", font=("Segoe UI", 9)).pack(anchor="w")
+        ttk.Label(info, text="Grok → console.x.ai  (xAI — ücretsiz $25 kredi)",
+                  foreground="#aaa", font=("Segoe UI", 9)).pack(anchor="w")
 
         ttk.Button(p, text="Kaydet", style="Accent.TButton",
                    command=self._save_settings).grid(
