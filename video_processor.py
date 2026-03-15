@@ -163,7 +163,7 @@ SOURCE_ANIMALS = {
 
 def replace_animal(input_path: str, output_path: str,
                    source_animal: str, target_animal: str,
-                   confidence: float = 0.35,
+                   confidence: float = 0.20,
                    callback=None) -> str:
     try:
         from ultralytics import YOLO
@@ -173,7 +173,7 @@ def replace_animal(input_path: str, output_path: str,
     from animal_overlays import overlay_on_frame
 
     if callback:
-        callback(0, 100, "YOLO modeli yukleniyor (ilk seferde ~6MB indirilir)...")
+        callback(0, 100, "YOLO modeli yukleniyor...")
 
     model = YOLO("yolov8n.pt")
     target_ids = SOURCE_ANIMALS.get(source_animal, [15])
@@ -184,35 +184,47 @@ def replace_animal(input_path: str, output_path: str,
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total  = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
+    # Buyuk videolari tespit icin kucult (hiz + dogruluk)
+    det_w = min(width, 1280)
+    det_h = int(height * det_w / width)
+    scale_x = width / det_w
+    scale_y = height / det_h
+
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     i = 0
+    found_total = 0
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
-        results = model(frame, verbose=False, conf=confidence)[0]
+        small = cv2.resize(frame, (det_w, det_h)) if width > 1280 else frame
+        results = model(small, verbose=False, conf=confidence)[0]
         boxes = []
         for box in results.boxes:
             cls_id = int(box.cls[0])
             if cls_id in target_ids:
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
+                # Orijinal boyuta geri olcekle
+                x1 = int(x1 * scale_x); y1 = int(y1 * scale_y)
+                x2 = int(x2 * scale_x); y2 = int(y2 * scale_y)
                 boxes.append((x1, y1, x2, y2))
 
         if boxes:
+            found_total += len(boxes)
             frame = overlay_on_frame(frame, boxes, target_animal)
 
         out.write(frame)
         i += 1
         if callback and i % 15 == 0:
-            callback(i, total, f"Kare {i}/{total} isleniyor... ({len(boxes)} hayvan bulundu)")
+            callback(i, total, f"Kare {i}/{total} | Toplam {found_total} tespit")
 
     cap.release()
     out.release()
 
     if callback:
-        callback(total, total, "Video tamamlandi!")
+        callback(total, total, f"Tamamlandi! Toplam {found_total} hayvan degistirildi.")
 
     return output_path

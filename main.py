@@ -22,7 +22,7 @@ def load_config() -> Dict:
     return {
         "output_dir": "output_videos",
         "sensitivity": 15,
-        "confidence": 35,
+        "confidence": 20,
     }
 
 
@@ -176,7 +176,7 @@ class App(tk.Tk):
         self.tgt_animal_combo.grid(row=0, column=3, sticky="w", pady=4)
 
         ttk.Label(rf, text="Güven Eşiği:").grid(row=1, column=0, sticky="w", padx=(0,10), pady=4)
-        self.conf_var = tk.IntVar(value=self.config_data.get("confidence", 35))
+        self.conf_var = tk.IntVar(value=self.config_data.get("confidence", 20))
         ttk.Scale(rf, from_=10, to=80, variable=self.conf_var,
                   orient="horizontal", length=160).grid(row=1, column=1, sticky="w")
         conf_lbl = ttk.Label(rf, text=f"%{self.conf_var.get()}", foreground="#aaa", width=4)
