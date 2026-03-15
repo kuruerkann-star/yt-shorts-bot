@@ -244,40 +244,44 @@ def overlay_animal_on_frame(frame_bgr: np.ndarray,
                              detections: list,
                              animal_name: str,
                              frame_idx: int) -> np.ndarray:
-    """
-    detections: list of (x1,y1,x2,y2, mask_or_None)
-    Maske varsa kedi bölgesini siler, yoksa bbox kullanır.
-    """
     from PIL import Image as PILImage
 
-    img = PILImage.fromarray(frame_bgr[:, :, ::-1]).convert("RGBA")
+    # RGB olarak tut — RGBA'ya cevirme (siyah delik sorunu olur)
+    img = PILImage.fromarray(frame_bgr[:, :, ::-1])
+    fw, fh = img.size
 
     for det in detections:
         x1, y1, x2, y2 = det[:4]
-        mask = det[4] if len(det) > 4 else None
 
-        # Kediyi maskele (beyaza boya — sonra arka plan rengiyle doldur)
-        if mask is not None:
-            mask_img = PILImage.fromarray((mask * 255).astype(np.uint8)).resize(
-                img.size, PILImage.NEAREST)
-            # Maske bölgesini şeffaf yap
-            img_np = np.array(img)
-            mask_np = np.array(mask_img)
-            img_np[mask_np > 128, 3] = 0
-            img = PILImage.fromarray(img_np)
+        # Sinir kontrolu
+        x1 = max(0, x1); y1 = max(0, y1)
+        x2 = min(fw, x2); y2 = min(fh, y2)
+        if x2 <= x1 or y2 <= y1:
+            continue
 
-        # Animasyon karesini seç — max 400px ile sınırla
         w, h = x2 - x1, y2 - y1
-        size = max(min(int(max(w, h) * 1.3), 400), 60)
+
+        # Tespit alani tum ekranin %70'inden buyukse atla (gurultu)
+        if w * h > fw * fh * 0.70:
+            continue
+
+        # Overlay boyutu — hayvanin bbox'u ile orantili, max 500px
+        size = max(min(int(max(w, h) * 1.2), 500), 50)
         frames = get_anim_frames(animal_name, size)
         anim_frame = frames[frame_idx % len(frames)]
 
-        # Ortala
         cx = (x1 + x2) // 2
         cy = (y1 + y2) // 2
-        px = cx - size // 2
-        py = cy - size // 2
+        px = max(0, cx - size // 2)
+        py = max(0, cy - size // 2)
 
-        img.paste(anim_frame, (px, py), anim_frame)
+        # Kırpma: ekran dışına taşmasın
+        crop_x2 = min(size, fw - px)
+        crop_y2 = min(size, fh - py)
+        if crop_x2 <= 0 or crop_y2 <= 0:
+            continue
+        anim_cropped = anim_frame.crop((0, 0, crop_x2, crop_y2))
 
-    return np.array(img.convert("RGB"))[:, :, ::-1]
+        img.paste(anim_cropped, (px, py), anim_cropped)
+
+    return np.array(img)[:, :, ::-1]
