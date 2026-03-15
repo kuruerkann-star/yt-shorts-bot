@@ -181,6 +181,12 @@ class VideoCreator:
         except ImportError:
             raise ImportError("moviepy yuklu degil. Lutfen 'pip install moviepy' calistirin.")
 
+        try:
+            import imageio_ffmpeg
+            os.environ.setdefault("FFMPEG_BINARY", imageio_ffmpeg.get_ffmpeg_exe())
+        except Exception:
+            pass
+
         title = custom_title or video_data.get("title", "Trending Video")
         tags = video_data.get("tags", [])[:5]
         hashtags = " ".join(f"#{t.replace(' ', '')}" for t in tags) if tags else "#shorts #viral #trending"

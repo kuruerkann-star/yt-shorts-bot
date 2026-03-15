@@ -58,17 +58,28 @@ class AIHelper:
         except ImportError:
             raise ImportError("openai paketi yuklu degil. 'pip install openai' calistirin.")
 
-        client = OpenAI(api_key=self.api_key)
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.85,
-            max_tokens=700,
-        )
-        return self._parse_response(response.choices[0].message.content.strip())
+        if not self.api_key:
+            raise ValueError("OpenAI API anahtari eksik. Ayarlar sekmesinden girin.")
+
+        try:
+            client = OpenAI(api_key=self.api_key)
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.85,
+                max_tokens=700,
+            )
+            return self._parse_response(response.choices[0].message.content.strip())
+        except Exception as e:
+            err = str(e)
+            if "401" in err or "Incorrect API key" in err:
+                raise ValueError("OpenAI API anahtari gecersiz. Lutfen gecerli bir anahtar girin.")
+            if "429" in err:
+                raise ValueError("OpenAI kota asimi (429). Planınızı kontrol edin veya biraz bekleyin.")
+            raise
 
     def _call_gemini(self, prompt: str) -> Dict:
         try:
@@ -78,13 +89,24 @@ class AIHelper:
                 "google-genai paketi yuklu degil. 'pip install google-genai' calistirin."
             )
 
-        client = genai.Client(api_key=self.api_key)
-        full = SYSTEM_PROMPT + "\n\n" + prompt
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=full,
-        )
-        return self._parse_response(response.text.strip())
+        if not self.api_key:
+            raise ValueError("Gemini API anahtari eksik. Ayarlar sekmesinden girin.")
+
+        try:
+            client = genai.Client(api_key=self.api_key)
+            full = SYSTEM_PROMPT + "\n\n" + prompt
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=full,
+            )
+            return self._parse_response(response.text.strip())
+        except Exception as e:
+            err = str(e)
+            if "401" in err or "API_KEY_INVALID" in err:
+                raise ValueError("Gemini API anahtari gecersiz. Lutfen gecerli bir anahtar girin.")
+            if "429" in err or "RESOURCE_EXHAUSTED" in err:
+                raise ValueError("Gemini kota asimi (429). Biraz bekleyin veya planınızı kontrol edin.")
+            raise
 
     def _parse_response(self, raw: str) -> Dict:
         start = raw.find("{")
