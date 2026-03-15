@@ -142,3 +142,77 @@ def download_video(url: str, output_dir: str, callback=None) -> str:
             return str(f)
 
     raise FileNotFoundError(f"İndirilen video dosyası bulunamadi: {base}")
+
+
+# COCO sinif id -> isim (hayvanlar)
+COCO_ANIMALS = {
+    14: "bird", 15: "cat", 16: "dog", 17: "horse",
+    18: "sheep", 19: "cow", 20: "elephant", 21: "bear",
+    22: "zebra", 23: "giraffe",
+}
+
+SOURCE_ANIMALS = {
+    "Kedi":     [15],
+    "Köpek":    [16],
+    "Kuş":      [14],
+    "At":       [17],
+    "Ayı":      [21],
+    "Tüm Hayvanlar": list(COCO_ANIMALS.keys()),
+}
+
+
+def replace_animal(input_path: str, output_path: str,
+                   source_animal: str, target_animal: str,
+                   confidence: float = 0.35,
+                   callback=None) -> str:
+    try:
+        from ultralytics import YOLO
+    except ImportError:
+        raise ImportError("ultralytics yuklu degil. 'pip install ultralytics' calistirin.")
+
+    from animal_overlays import overlay_on_frame
+
+    if callback:
+        callback(0, 100, "YOLO modeli yukleniyor (ilk seferde ~6MB indirilir)...")
+
+    model = YOLO("yolov8n.pt")
+    target_ids = SOURCE_ANIMALS.get(source_animal, [15])
+
+    cap = cv2.VideoCapture(input_path)
+    fps    = cap.get(cv2.CAP_PROP_FPS) or 30
+    width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total  = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+    i = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        results = model(frame, verbose=False, conf=confidence)[0]
+        boxes = []
+        for box in results.boxes:
+            cls_id = int(box.cls[0])
+            if cls_id in target_ids:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                boxes.append((x1, y1, x2, y2))
+
+        if boxes:
+            frame = overlay_on_frame(frame, boxes, target_animal)
+
+        out.write(frame)
+        i += 1
+        if callback and i % 15 == 0:
+            callback(i, total, f"Kare {i}/{total} isleniyor... ({len(boxes)} hayvan bulundu)")
+
+    cap.release()
+    out.release()
+
+    if callback:
+        callback(total, total, "Video tamamlandi!")
+
+    return output_path
