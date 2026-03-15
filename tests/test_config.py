@@ -8,14 +8,12 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 DEFAULTS = {
-    "api_key": "",
-    "client_secrets": "",
+    "ai_provider": "nim",
+    "ai_api_key": "",
+    "nim_model": "meta/llama-3.3-70b-instruct",
     "channel_name": "",
-    "region_code": "TR",
-    "language": "tr",
     "output_dir": "output_videos",
     "video_duration": 30,
-    "auto_tts": False,
 }
 
 
