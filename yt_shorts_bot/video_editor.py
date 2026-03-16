@@ -253,7 +253,13 @@ def add_audio_to_video(video_path: str, audio_path: str, output_path: str,
 
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
-        raise RuntimeError("ffmpeg bulunamadı. Lütfen ffmpeg'i yükleyin.")
+        try:
+            import imageio_ffmpeg
+            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        except ImportError:
+            pass
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg bulunamadı. 'pip install imageio-ffmpeg' ile yükleyin.")
 
     if callback:
         callback(10, 100, "Ses videoya ekleniyor...")
