@@ -1,0 +1,49 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Uygulama cikti
+output_videos/
+
+# Konfigürasyon ve kimlik bilgileri
+config.json
+token.pickle
+client_secret*.json
+
+# Ortam
+.env
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Pytest
+.pytest_cache/
+
+# Model dosyaları (büyük binary)
+*.pt
+*.pth
+*.onnx
+
+# Eski git klasörü
+.git_disabled/
+
+# Ses cache
+output_videos/audio_cache/
+
