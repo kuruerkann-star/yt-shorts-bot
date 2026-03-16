@@ -270,7 +270,7 @@ def download_youtube_audio(url: str, out_dir: str, callback=None) -> str:
 def add_audio_to_video(video_path: str, audio_path: str, output_path: str,
                        volume: float = 1.0, loop_audio: bool = True,
                        callback=None) -> str:
-    """Videoya ses ekle. ffmpeg kullanır."""
+    """Videoya ses ekle. WhatsApp/sosyal medya uyumlu H.264+AAC MP4 üretir."""
     import subprocess
 
     ffmpeg = _get_ffmpeg_path()
@@ -278,9 +278,8 @@ def add_audio_to_video(video_path: str, audio_path: str, output_path: str,
         raise RuntimeError("ffmpeg bulunamadı. 'pip install imageio-ffmpeg' ile yükleyin.")
 
     if callback:
-        callback(10, 100, "Ses videoya ekleniyor...")
+        callback(10, 100, "Ses videoya ekleniyor (H.264 kodlanıyor)...")
 
-    # loop_audio: ses video boyunca döngüye girer
     loop_flag = ["-stream_loop", "-1"] if loop_audio else []
 
     cmd = (
@@ -288,8 +287,12 @@ def add_audio_to_video(video_path: str, audio_path: str, output_path: str,
         + ["-i", video_path]
         + loop_flag
         + ["-i", audio_path]
-        + ["-c:v", "copy"]
-        + ["-c:a", "aac", "-b:a", "192k"]
+        # Video: H.264, WhatsApp/WP/Instagram uyumlu profil
+        + ["-c:v", "libx264", "-profile:v", "baseline", "-level", "3.1"]
+        + ["-pix_fmt", "yuv420p"]          # renk uzayı uyumluluğu
+        + ["-movflags", "+faststart"]      # web/mobil için optimize
+        # Ses: AAC stereo 192k
+        + ["-c:a", "aac", "-b:a", "192k", "-ac", "2"]
         + ["-filter:a", f"volume={volume}"]
         + ["-shortest"]
         + [output_path]
