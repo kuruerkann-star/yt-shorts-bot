@@ -309,13 +309,19 @@ def add_audio_to_video(video_path: str, audio_path: str, output_path: str,
         looped_audio = os.path.join(td, "looped.wav")
 
         # -stream_loop ile tam sayıda döngü → kesintisiz ses
+        # loudnorm: EBU R128 normalizasyon — kliplenmeyi önler
         loop_cmd = [
             ffmpeg, "-y",
             "-stream_loop", str(loop_count),
             "-i", audio_path,
-            "-af", f"aresample=44100,volume={volume}",
+            "-af", (
+                f"aresample=44100,"
+                f"loudnorm=I=-16:TP=-1.5:LRA=11,"
+                f"volume={volume}"
+            ),
             "-ac", "2",
             "-ar", "44100",
+            "-sample_fmt", "s16",
             looped_audio,
         ]
         r = subprocess.run(loop_cmd, capture_output=True, text=True)
