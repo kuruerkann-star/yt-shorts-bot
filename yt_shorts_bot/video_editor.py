@@ -284,70 +284,46 @@ def add_audio_to_video(video_path: str, audio_path: str, output_path: str,
                        volume: float = 1.0, loop_audio: bool = True,
                        callback=None) -> str:
     """Videoya ses ekle. WhatsApp/sosyal medya uyumlu H.264+AAC MP4 üretir."""
-    import subprocess, tempfile, math, os
+    import subprocess, math
 
     ffmpeg = _get_ffmpeg_path()
     if not ffmpeg:
         raise RuntimeError("ffmpeg bulunamadı. 'pip install imageio-ffmpeg' ile yükleyin.")
 
     if callback:
-        callback(5, 100, "Video süresi hesaplanıyor...")
+        callback(5, 100, "Süreler hesaplanıyor...")
 
     video_dur = _get_duration(ffmpeg, video_path)
     audio_dur = _get_duration(ffmpeg, audio_path)
 
-    # Döngü sayısını hesapla (ses videodan kısaysa)
     loop_count = 0
     if loop_audio and audio_dur > 0 and video_dur > 0:
         loop_count = max(0, math.ceil(video_dur / audio_dur) - 1)
 
     if callback:
-        callback(15, 100, f"Ses hazırlanıyor (döngü: {loop_count}x)...")
+        callback(20, 100, f"Ses ekleniyor (döngü: {loop_count}x, H.264 kodlanıyor)...")
 
-    # Adım 1: Sesi döngüye al ve normalize et (geçici dosyaya)
-    with tempfile.TemporaryDirectory() as td:
-        looped_audio = os.path.join(td, "looped.wav")
+    # Tek adım: stream_loop ile MP3'ü doğrudan oku → AAC'ye encode et
+    # WAV ara dosyası YOK → dönüşüm zinciri kısa → ses kalitesi korunur
+    cmd = [
+        ffmpeg, "-y",
+        "-stream_loop", str(loop_count),
+        "-i", audio_path,
+        "-i", video_path,
+        "-map", "1:v",
+        "-map", "0:a",
+        "-c:v", "libx264", "-profile:v", "baseline", "-level", "3.1",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        "-c:a", "aac", "-b:a", "256k", "-ac", "2", "-ar", "44100",
+        "-af", f"volume={volume}",
+        "-shortest",
+        output_path,
+    ]
 
-        # -stream_loop ile tam sayıda döngü → kesintisiz ses
-        # loudnorm: EBU R128 normalizasyon — kliplenmeyi önler
-        loop_cmd = [
-            ffmpeg, "-y",
-            "-stream_loop", str(loop_count),
-            "-i", audio_path,
-            "-af", (
-                f"aresample=44100,"
-                f"loudnorm=I=-16:TP=-1.5:LRA=11,"
-                f"volume={volume}"
-            ),
-            "-ac", "2",
-            "-ar", "44100",
-            "-sample_fmt", "s16",
-            looped_audio,
-        ]
-        r = subprocess.run(loop_cmd, capture_output=True, text=True)
-        if r.returncode != 0:
-            raise RuntimeError(f"Ses hazırlama hatası:\n{r.stderr[-600:]}")
-
-        if callback:
-            callback(40, 100, "Ses videoya ekleniyor (H.264 kodlanıyor)...")
-
-        # Adım 2: Video + hazır ses → H.264 MP4
-        mix_cmd = [
-            ffmpeg, "-y",
-            "-i", video_path,
-            "-i", looped_audio,
-            "-map", "0:v",
-            "-map", "1:a",
-            "-c:v", "libx264", "-profile:v", "baseline", "-level", "3.1",
-            "-pix_fmt", "yuv420p",
-            "-movflags", "+faststart",
-            "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "44100",
-            "-shortest",
-            output_path,
-        ]
-        r2 = subprocess.run(mix_cmd, capture_output=True, text=True)
-        if r2.returncode != 0:
-            raise RuntimeError(f"ffmpeg hatası:\n{r2.stderr[-800:]}")
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg hatası:\n{proc.stderr[-800:]}")
 
     if callback:
         callback(100, 100, f"Tamamlandı → {output_path}")
