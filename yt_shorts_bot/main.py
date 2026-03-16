@@ -1,42 +1,17 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
+from tkinter import ttk, scrolledtext, messagebox, filedialog
 import threading
-import json
 import os
 from pathlib import Path
-from typing import Optional, Dict
-
-CONFIG_FILE = "config.json"
-
-
-def load_config() -> Dict:
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {
-        "ai_provider": "grok",
-        "ai_api_key": "",
-        "output_dir": "output_videos",
-        "video_duration": 30,
-    }
-
-
-def save_config(cfg: Dict):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
 
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("YouTube Shorts Bot")
-        self.geometry("900x700")
-        self.minsize(780, 560)
+        self.title("Video Araçları")
+        self.geometry("860x660")
+        self.minsize(720, 520)
         self.configure(bg="#0f0f1a")
-        self.config_data = load_config()
         self._setup_styles()
         self._build_ui()
 
@@ -53,7 +28,7 @@ class App(tk.Tk):
         s.configure("TLabelframe.Label", background=BG, foreground=ACC,
                     font=("Segoe UI", 10, "bold"))
         s.configure("TNotebook", background=BG, borderwidth=0)
-        s.configure("TNotebook.Tab", background=ENT, foreground=FG, padding=[16, 7])
+        s.configure("TNotebook.Tab", background=ENT, foreground=FG, padding=[18, 8])
         s.map("TNotebook.Tab",
               background=[("selected", ACC)], foreground=[("selected", FG)])
         s.configure("TEntry", fieldbackground=ENT, foreground=FG, insertcolor=FG)
@@ -72,10 +47,10 @@ class App(tk.Tk):
     def _build_ui(self):
         hdr = ttk.Frame(self)
         hdr.pack(fill="x")
-        tk.Label(hdr, text="YouTube Shorts Bot",
+        tk.Label(hdr, text="Video Araçları",
                  font=("Segoe UI", 17, "bold"), bg="#0f0f1a", fg="#ff3c78"
                  ).pack(side="left", padx=18, pady=10)
-        tk.Label(hdr, text="URL yapıştır veya hikaye yaz → AI ile video oluştur",
+        tk.Label(hdr, text="Video Birleştir  •  Ses Ekle",
                  font=("Segoe UI", 9), bg="#0f0f1a", fg="#666"
                  ).pack(side="left")
         tk.Frame(self, height=2, bg="#ff3c78").pack(fill="x")
@@ -83,114 +58,24 @@ class App(tk.Tk):
         nb = ttk.Notebook(self)
         nb.pack(fill="both", expand=True)
 
-        self.tab_url   = ttk.Frame(nb)
-        self.tab_story = ttk.Frame(nb)
         self.tab_merge = ttk.Frame(nb)
         self.tab_audio = ttk.Frame(nb)
-        self.tab_cfg   = ttk.Frame(nb)
-        nb.add(self.tab_url,   text="  YouTube URL  ")
-        nb.add(self.tab_story, text="  Hikaye / Metin  ")
         nb.add(self.tab_merge, text="  Video Birleştir  ")
         nb.add(self.tab_audio, text="  Ses Ekle  ")
-        nb.add(self.tab_cfg,   text="  Ayarlar  ")
 
-        self._build_url_tab()
-        self._build_story_tab()
         self._build_merge_tab()
         self._build_audio_tab()
-        self._build_settings_tab()
 
         self.status_var = tk.StringVar(value="Hazır")
         tk.Label(self, textvariable=self.status_var, bg="#1a1a2e", fg="#aaa",
                  anchor="w", padx=10, font=("Segoe UI", 9)
                  ).pack(fill="x", side="bottom")
 
-    # ── YouTube URL sekmesi ──────────────────────────────────────────────────
-    def _build_url_tab(self):
-        p = ttk.Frame(self.tab_url)
-        p.pack(fill="both", expand=True, padx=16, pady=12)
-
-        uf = ttk.LabelFrame(p, text="YouTube URL", padding=10)
-        uf.pack(fill="x", pady=(0, 8))
-        ttk.Label(uf, text="URL:").grid(row=0, column=0, sticky="w", padx=(0, 8))
-        self.url_entry = ttk.Entry(uf, width=60)
-        self.url_entry.grid(row=0, column=1, sticky="ew", padx=(0, 10))
-        ttk.Button(uf, text="Bilgi Getir", style="Accent.TButton",
-                   command=self._fetch_url).grid(row=0, column=2)
-        uf.columnconfigure(1, weight=1)
-        self.url_info_lbl = ttk.Label(uf, text="", foreground="#aaa",
-                                      font=("Segoe UI", 8), wraplength=700)
-        self.url_info_lbl.grid(row=1, column=0, columnspan=3, sticky="w", pady=(4, 0))
-
-        self._build_ai_panel(p, tag="url")
-        self._build_action_row(p, tag="url")
-
-    # ── Hikaye sekmesi ───────────────────────────────────────────────────────
-    def _build_story_tab(self):
-        p = ttk.Frame(self.tab_story)
-        p.pack(fill="both", expand=True, padx=16, pady=12)
-
-        sf = ttk.LabelFrame(p, text="Hikaye / Metin", padding=10)
-        sf.pack(fill="x", pady=(0, 8))
-        ttk.Label(sf, text="Oluşturmak istediğin video fikrini veya hikayeyi yaz:"
-                  ).pack(anchor="w", pady=(0, 4))
-        self.story_text = scrolledtext.ScrolledText(
-            sf, height=5, bg="#1a1a2e", fg="#fff",
-            font=("Segoe UI", 10), insertbackground="white", relief="flat")
-        self.story_text.pack(fill="x")
-
-        self._build_ai_panel(p, tag="story")
-        self._build_action_row(p, tag="story")
-
-    def _build_ai_panel(self, parent, tag: str):
-        af = ttk.LabelFrame(parent, text="  Grok AI Ayarları", padding=10)
-        af.pack(fill="x", pady=(0, 8))
-
-        ttk.Label(af, text="Tarz / Prompt:").grid(row=0, column=0, sticky="w", padx=(0, 8))
-        prompt_e = ttk.Entry(af, width=55)
-        prompt_e.insert(0, "Viral, eğlenceli, 30 saniyelik Shorts videosu")
-        prompt_e.grid(row=0, column=1, sticky="ew", pady=4)
-        af.columnconfigure(1, weight=1)
-
-        ttk.Label(af, text="Tema:").grid(row=1, column=0, sticky="w", padx=(0, 8))
-        theme_cb = ttk.Combobox(af, values=[
-            "dark", "neon", "minimal", "retro", "nature", "tech"
-        ], width=14, state="readonly")
-        theme_cb.set("dark")
-        theme_cb.grid(row=1, column=1, sticky="w", pady=4)
-
-        setattr(self, f"_{tag}_prompt_entry", prompt_e)
-        setattr(self, f"_{tag}_theme_cb", theme_cb)
-
-    def _build_action_row(self, parent, tag: str):
-        row = ttk.Frame(parent)
-        row.pack(fill="x", pady=(0, 6))
-        ttk.Button(row, text="AI ile Script Oluştur", style="Accent.TButton",
-                   command=lambda t=tag: self._generate_script(t)).pack(side="left", padx=(0, 8))
-        ttk.Button(row, text="Video Oluştur", style="Green.TButton",
-                   command=lambda t=tag: self._create_video(t)).pack(side="left", padx=(0, 8))
-        preview_btn = ttk.Button(row, text="▶  İzle", state="disabled",
-                                 command=lambda t=tag: self._preview(t))
-        preview_btn.pack(side="left")
-        setattr(self, f"_{tag}_preview_btn", preview_btn)
-        setattr(self, f"_{tag}_out_path", None)
-        setattr(self, f"_{tag}_script", None)
-
-        prog = ttk.Progressbar(parent, mode="determinate", maximum=100)
-        prog.pack(fill="x", pady=(0, 4))
-        setattr(self, f"_{tag}_progress", prog)
-
-        log = scrolledtext.ScrolledText(parent, height=7, bg="#1a1a2e", fg="#ccc",
-                                        font=("Consolas", 8), state="disabled", relief="flat")
-        log.pack(fill="both", expand=True)
-        setattr(self, f"_{tag}_log", log)
-
-    # ── Video Birleştir sekmesi ──────────────────────────────────────────────
+    # ── Video Birleştir ──────────────────────────────────────────────────────
     def _build_merge_tab(self):
         p = ttk.Frame(self.tab_merge)
         p.pack(fill="both", expand=True, padx=16, pady=12)
 
-        # Dosya listesi
         lf = ttk.LabelFrame(p, text="Birleştirilecek Videolar (Sırayla)", padding=10)
         lf.pack(fill="both", expand=True, pady=(0, 8))
 
@@ -201,7 +86,6 @@ class App(tk.Tk):
             list_frame, bg="#1a1a2e", fg="#fff", selectbackground="#ff3c78",
             font=("Segoe UI", 9), height=8, relief="flat", activestyle="none")
         self._merge_listbox.pack(side="left", fill="both", expand=True)
-
         sb = ttk.Scrollbar(list_frame, orient="vertical",
                            command=self._merge_listbox.yview)
         sb.pack(side="right", fill="y")
@@ -218,7 +102,6 @@ class App(tk.Tk):
         ttk.Button(btn_row, text="Sil",
                    command=self._merge_remove).pack(side="left")
 
-        # Efekt ayarları
         ef = ttk.LabelFrame(p, text="Geçiş Efekti Ayarları", padding=10)
         ef.pack(fill="x", pady=(0, 8))
 
@@ -231,46 +114,39 @@ class App(tk.Tk):
 
         ttk.Label(ef, text="Süre (sn):").grid(row=0, column=2, sticky="w", padx=(16, 8))
         self._merge_dur_var = tk.StringVar(value="0.5")
-        dur_spin = ttk.Spinbox(ef, from_=0.1, to=2.0, increment=0.1,
-                               textvariable=self._merge_dur_var, width=6)
-        dur_spin.grid(row=0, column=3, sticky="w", pady=4)
+        ttk.Spinbox(ef, from_=0.1, to=2.0, increment=0.1,
+                    textvariable=self._merge_dur_var, width=6
+                    ).grid(row=0, column=3, sticky="w", pady=4)
 
-        # Çıktı dosyası
         ttk.Label(ef, text="Çıktı:").grid(row=1, column=0, sticky="w", padx=(0, 8))
-        self._merge_out_entry = ttk.Entry(ef, width=40)
+        self._merge_out_entry = ttk.Entry(ef, width=48)
         self._merge_out_entry.insert(0, "output_videos/merged_output.mp4")
         self._merge_out_entry.grid(row=1, column=1, columnspan=3, sticky="ew", pady=4)
         ef.columnconfigure(1, weight=1)
 
-        # Aksiyon satırı
         act = ttk.Frame(p)
         act.pack(fill="x", pady=(0, 6))
         ttk.Button(act, text="Birleştir", style="Green.TButton",
                    command=self._merge_start).pack(side="left", padx=(0, 8))
-        self._merge_preview_btn = ttk.Button(act, text="▶  İzle",
-                                              state="disabled",
+        self._merge_preview_btn = ttk.Button(act, text="▶  İzle", state="disabled",
                                               command=self._merge_preview)
         self._merge_preview_btn.pack(side="left", padx=(0, 6))
-        self._merge_save_btn = ttk.Button(act, text="Masaüstüne İndir",
-                                          state="disabled",
-                                          command=self._merge_save_to_desktop)
+        self._merge_save_btn = ttk.Button(act, text="Masaüstüne İndir", state="disabled",
+                                           command=self._merge_save_desktop)
         self._merge_save_btn.pack(side="left")
 
         self._merge_progress = ttk.Progressbar(p, mode="determinate", maximum=100)
         self._merge_progress.pack(fill="x", pady=(0, 4))
-
         self._merge_log = scrolledtext.ScrolledText(
-            p, height=6, bg="#1a1a2e", fg="#ccc",
+            p, height=5, bg="#1a1a2e", fg="#ccc",
             font=("Consolas", 8), state="disabled", relief="flat")
         self._merge_log.pack(fill="both", expand=False)
-
         self._merge_out_path = None
 
     def _merge_add_file(self):
-        from tkinter import filedialog
         paths = filedialog.askopenfilenames(
             title="Video Seç",
-            filetypes=[("Video Dosyaları", "*.mp4 *.avi *.mov *.mkv *.webm"), ("Tümü", "*.*")])
+            filetypes=[("Video", "*.mp4 *.avi *.mov *.mkv *.webm"), ("Tümü", "*.*")])
         for p in paths:
             self._merge_listbox.insert("end", p)
 
@@ -278,8 +154,7 @@ class App(tk.Tk):
         sel = self._merge_listbox.curselection()
         if not sel or sel[0] == 0:
             return
-        i = sel[0]
-        val = self._merge_listbox.get(i)
+        i = sel[0]; val = self._merge_listbox.get(i)
         self._merge_listbox.delete(i)
         self._merge_listbox.insert(i - 1, val)
         self._merge_listbox.selection_set(i - 1)
@@ -288,8 +163,7 @@ class App(tk.Tk):
         sel = self._merge_listbox.curselection()
         if not sel or sel[0] == self._merge_listbox.size() - 1:
             return
-        i = sel[0]
-        val = self._merge_listbox.get(i)
+        i = sel[0]; val = self._merge_listbox.get(i)
         self._merge_listbox.delete(i)
         self._merge_listbox.insert(i + 1, val)
         self._merge_listbox.selection_set(i + 1)
@@ -301,32 +175,29 @@ class App(tk.Tk):
 
     def _merge_preview(self):
         path = self._merge_out_path
-        if not path:
-            return
-        path = os.path.abspath(path)
-        if os.path.exists(path):
-            os.startfile(path)
-        else:
-            messagebox.showerror("Dosya Bulunamadı", f"Video dosyası bulunamadı:\n{path}")
+        if path:
+            path = os.path.abspath(path)
+            if os.path.exists(path):
+                os.startfile(path)
+            else:
+                messagebox.showerror("Bulunamadı", f"Dosya yok:\n{path}")
 
-    def _merge_save_to_desktop(self):
+    def _merge_save_desktop(self):
         import shutil
         path = self._merge_out_path
         if not path or not os.path.exists(path):
             messagebox.showerror("Dosya Yok", "Önce video birleştirin.")
             return
         desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-        dest = os.path.join(desktop, os.path.basename(path))
-        # Aynı isimde dosya varsa numaralandır
         base, ext = os.path.splitext(os.path.basename(path))
-        counter = 1
+        dest = os.path.join(desktop, os.path.basename(path))
+        c = 1
         while os.path.exists(dest):
-            dest = os.path.join(desktop, f"{base}_{counter}{ext}")
-            counter += 1
+            dest = os.path.join(desktop, f"{base}_{c}{ext}"); c += 1
         shutil.copy2(path, dest)
-        messagebox.showinfo("Kaydedildi", f"Video masaüstüne kaydedildi:\n{dest}")
+        messagebox.showinfo("Kaydedildi", f"Masaüstüne kaydedildi:\n{dest}")
 
-    def _merge_log_msg(self, msg: str):
+    def _merge_log_msg(self, msg):
         self._merge_log.configure(state="normal")
         self._merge_log.insert("end", msg + "\n")
         self._merge_log.see("end")
@@ -337,16 +208,13 @@ class App(tk.Tk):
         if len(paths) < 2:
             messagebox.showwarning("Yetersiz Video", "En az 2 video ekleyin.")
             return
-
-        effect    = self._merge_effect_cb.get()
-        out_path  = self._merge_out_entry.get().strip() or "output_videos/merged_output.mp4"
+        effect   = self._merge_effect_cb.get()
+        out_path = self._merge_out_entry.get().strip() or "output_videos/merged_output.mp4"
         try:
             dur = float(self._merge_dur_var.get())
         except ValueError:
             dur = 0.5
-
         os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
-
         self._merge_progress["value"] = 0
         self._merge_preview_btn.configure(state="disabled")
         self._merge_save_btn.configure(state="disabled")
@@ -354,41 +222,38 @@ class App(tk.Tk):
         self._merge_log.configure(state="normal")
         self._merge_log.delete("1.0", "end")
         self._merge_log.configure(state="disabled")
-        self._set_status("Videolar birleştiriliyor...")
+        self.status_var.set("Videolar birleştiriliyor...")
 
         def cb(cur, total, msg):
             pct = int(cur / max(total, 1) * 100)
             self.after(0, lambda: self._merge_progress.configure(value=pct))
             self.after(0, lambda: self._merge_log_msg(msg))
-            self.after(0, lambda: self._set_status(msg))
+            self.after(0, lambda: self.status_var.set(msg))
 
         def worker():
             try:
                 from video_editor import merge_videos
-                result = merge_videos(paths, out_path,
-                                      transition=effect,
-                                      transition_sec=dur,
-                                      callback=cb)
+                result = merge_videos(paths, out_path, transition=effect,
+                                      transition_sec=dur, callback=cb)
                 def _done(r=result):
                     self._merge_out_path = os.path.abspath(r)
                     self._merge_progress.configure(value=100)
                     self._merge_log_msg(f"Tamamlandı → {self._merge_out_path}")
-                    self._set_status("Birleştirme tamamlandı.")
+                    self.status_var.set("Birleştirme tamamlandı.")
                     self._merge_preview_btn.configure(state="normal")
                     self._merge_save_btn.configure(state="normal")
                 self.after(0, _done)
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror("Hata", str(e)))
                 self.after(0, lambda: self._merge_log_msg("HATA: " + str(e)))
-                self.after(0, lambda: self._set_status("Hata oluştu."))
+                self.after(0, lambda: self.status_var.set("Hata oluştu."))
         threading.Thread(target=worker, daemon=True).start()
 
-    # ── Ses Ekle sekmesi ────────────────────────────────────────────────────
+    # ── Ses Ekle ────────────────────────────────────────────────────────────
     def _build_audio_tab(self):
         p = ttk.Frame(self.tab_audio)
         p.pack(fill="both", expand=True, padx=16, pady=12)
 
-        # Video seç
         vf = ttk.LabelFrame(p, text="Video Dosyası", padding=10)
         vf.pack(fill="x", pady=(0, 8))
         self._audio_video_entry = ttk.Entry(vf, width=60)
@@ -396,80 +261,66 @@ class App(tk.Tk):
         ttk.Button(vf, text="Seç...",
                    command=self._audio_pick_video).pack(side="left")
 
-        # Ses kaynağı
         sf = ttk.LabelFrame(p, text="Ses Kaynağı", padding=10)
         sf.pack(fill="x", pady=(0, 8))
 
         self._audio_source_var = tk.StringVar(value="youtube")
-        rb_frame = ttk.Frame(sf)
-        rb_frame.pack(anchor="w", pady=(0, 6))
-        ttk.Radiobutton(rb_frame, text="YouTube URL",
-                        variable=self._audio_source_var, value="youtube",
-                        command=self._audio_toggle_source).pack(side="left", padx=(0, 20))
-        ttk.Radiobutton(rb_frame, text="Yerel Dosya",
-                        variable=self._audio_source_var, value="local",
-                        command=self._audio_toggle_source).pack(side="left")
+        rb = ttk.Frame(sf)
+        rb.pack(anchor="w", pady=(0, 6))
+        ttk.Radiobutton(rb, text="YouTube URL", variable=self._audio_source_var,
+                        value="youtube", command=self._audio_toggle).pack(side="left", padx=(0, 20))
+        ttk.Radiobutton(rb, text="Yerel Dosya", variable=self._audio_source_var,
+                        value="local", command=self._audio_toggle).pack(side="left")
 
-        # YouTube URL satırı
         self._audio_yt_frame = ttk.Frame(sf)
         self._audio_yt_frame.pack(fill="x")
         ttk.Label(self._audio_yt_frame, text="URL:").pack(side="left", padx=(0, 8))
         self._audio_yt_entry = ttk.Entry(self._audio_yt_frame, width=60)
         self._audio_yt_entry.pack(side="left", fill="x", expand=True)
 
-        # Yerel dosya satırı (başta gizli)
         self._audio_local_frame = ttk.Frame(sf)
         ttk.Label(self._audio_local_frame, text="Dosya:").pack(side="left", padx=(0, 8))
-        self._audio_local_entry = ttk.Entry(self._audio_local_frame, width=52)
+        self._audio_local_entry = ttk.Entry(self._audio_local_frame, width=50)
         self._audio_local_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
         ttk.Button(self._audio_local_frame, text="Seç...",
                    command=self._audio_pick_local).pack(side="left")
 
-        # Ayarlar satırı
         opt = ttk.Frame(sf)
         opt.pack(fill="x", pady=(8, 0))
-
         ttk.Label(opt, text="Ses seviyesi:").pack(side="left", padx=(0, 6))
         self._audio_vol_var = tk.StringVar(value="1.0")
         ttk.Spinbox(opt, from_=0.1, to=3.0, increment=0.1,
                     textvariable=self._audio_vol_var, width=5).pack(side="left", padx=(0, 16))
-
         self._audio_loop_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(opt, text="Ses döngüye girsin (video bitene kadar)",
+        ttk.Checkbutton(opt, text="Ses döngüye girsin",
                         variable=self._audio_loop_var).pack(side="left")
 
-        # Çıktı
         of = ttk.LabelFrame(p, text="Çıktı Dosyası", padding=10)
         of.pack(fill="x", pady=(0, 8))
         self._audio_out_entry = ttk.Entry(of, width=60)
         self._audio_out_entry.insert(0, "output_videos/video_with_audio.mp4")
         self._audio_out_entry.pack(side="left", fill="x", expand=True)
 
-        # Aksiyon satırı
         act = ttk.Frame(p)
         act.pack(fill="x", pady=(0, 6))
         ttk.Button(act, text="Ses Ekle", style="Green.TButton",
                    command=self._audio_start).pack(side="left", padx=(0, 8))
-        self._audio_preview_btn = ttk.Button(act, text="▶  İzle",
-                                             state="disabled",
-                                             command=self._audio_preview)
+        self._audio_preview_btn = ttk.Button(act, text="▶  İzle", state="disabled",
+                                              command=self._audio_preview)
         self._audio_preview_btn.pack(side="left", padx=(0, 6))
-        self._audio_save_btn = ttk.Button(act, text="Masaüstüne İndir",
-                                          state="disabled",
-                                          command=self._audio_save_desktop)
+        self._audio_save_btn = ttk.Button(act, text="Masaüstüne İndir", state="disabled",
+                                           command=self._audio_save_desktop)
         self._audio_save_btn.pack(side="left")
 
         self._audio_progress = ttk.Progressbar(p, mode="determinate", maximum=100)
         self._audio_progress.pack(fill="x", pady=(0, 4))
-
         self._audio_log = scrolledtext.ScrolledText(
-            p, height=7, bg="#1a1a2e", fg="#ccc",
+            p, height=6, bg="#1a1a2e", fg="#ccc",
             font=("Consolas", 8), state="disabled", relief="flat")
         self._audio_log.pack(fill="both", expand=True)
-
         self._audio_out_path = None
 
-    def _audio_toggle_source(self):
+    def _audio_toggle(self):
         if self._audio_source_var.get() == "youtube":
             self._audio_local_frame.pack_forget()
             self._audio_yt_frame.pack(fill="x")
@@ -478,7 +329,6 @@ class App(tk.Tk):
             self._audio_local_frame.pack(fill="x")
 
     def _audio_pick_video(self):
-        from tkinter import filedialog
         path = filedialog.askopenfilename(
             title="Video Seç",
             filetypes=[("Video", "*.mp4 *.avi *.mov *.mkv *.webm"), ("Tümü", "*.*")])
@@ -487,7 +337,6 @@ class App(tk.Tk):
             self._audio_video_entry.insert(0, path)
 
     def _audio_pick_local(self):
-        from tkinter import filedialog
         path = filedialog.askopenfilename(
             title="Ses Dosyası Seç",
             filetypes=[("Ses", "*.mp3 *.wav *.aac *.ogg *.m4a"), ("Tümü", "*.*")])
@@ -495,7 +344,7 @@ class App(tk.Tk):
             self._audio_local_entry.delete(0, "end")
             self._audio_local_entry.insert(0, path)
 
-    def _audio_log_msg(self, msg: str):
+    def _audio_log_msg(self, msg):
         self._audio_log.configure(state="normal")
         self._audio_log.insert("end", msg + "\n")
         self._audio_log.see("end")
@@ -515,10 +364,9 @@ class App(tk.Tk):
         desktop = os.path.join(os.path.expanduser("~"), "Desktop")
         base, ext = os.path.splitext(os.path.basename(path))
         dest = os.path.join(desktop, os.path.basename(path))
-        counter = 1
+        c = 1
         while os.path.exists(dest):
-            dest = os.path.join(desktop, f"{base}_{counter}{ext}")
-            counter += 1
+            dest = os.path.join(desktop, f"{base}_{c}{ext}"); c += 1
         shutil.copy2(path, dest)
         messagebox.showinfo("Kaydedildi", f"Masaüstüne kaydedildi:\n{dest}")
 
@@ -527,10 +375,9 @@ class App(tk.Tk):
         if not video_path or not os.path.exists(video_path):
             messagebox.showwarning("Video Yok", "Geçerli bir video dosyası seçin.")
             return
-
-        source   = self._audio_source_var.get()
-        yt_url   = self._audio_yt_entry.get().strip()
-        local_f  = self._audio_local_entry.get().strip()
+        source  = self._audio_source_var.get()
+        yt_url  = self._audio_yt_entry.get().strip()
+        local_f = self._audio_local_entry.get().strip()
         out_path = self._audio_out_entry.get().strip() or "output_videos/video_with_audio.mp4"
         try:
             volume = float(self._audio_vol_var.get())
@@ -546,7 +393,6 @@ class App(tk.Tk):
             return
 
         os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
-
         self._audio_progress["value"] = 0
         self._audio_preview_btn.configure(state="disabled")
         self._audio_save_btn.configure(state="disabled")
@@ -554,13 +400,13 @@ class App(tk.Tk):
         self._audio_log.configure(state="normal")
         self._audio_log.delete("1.0", "end")
         self._audio_log.configure(state="disabled")
-        self._set_status("Ses ekleniyor...")
+        self.status_var.set("Ses ekleniyor...")
 
         def cb(cur, total, msg):
             pct = int(cur / max(total, 1) * 100)
             self.after(0, lambda: self._audio_progress.configure(value=pct))
             self.after(0, lambda: self._audio_log_msg(msg))
-            self.after(0, lambda: self._set_status(msg))
+            self.after(0, lambda: self.status_var.set(msg))
 
         def worker():
             try:
@@ -569,200 +415,21 @@ class App(tk.Tk):
                 if source == "youtube":
                     audio_file = download_youtube_audio(
                         yt_url, "output_videos/audio_cache", callback=cb)
-                result = add_audio_to_video(
-                    video_path, audio_file, out_path,
-                    volume=volume, loop_audio=loop, callback=cb)
+                result = add_audio_to_video(video_path, audio_file, out_path,
+                                            volume=volume, loop_audio=loop, callback=cb)
                 def _done(r=result):
                     self._audio_out_path = os.path.abspath(r)
                     self._audio_progress.configure(value=100)
                     self._audio_log_msg(f"Tamamlandı → {self._audio_out_path}")
-                    self._set_status("Ses ekleme tamamlandı.")
+                    self.status_var.set("Ses ekleme tamamlandı.")
                     self._audio_preview_btn.configure(state="normal")
                     self._audio_save_btn.configure(state="normal")
                 self.after(0, _done)
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror("Hata", str(e)))
                 self.after(0, lambda: self._audio_log_msg("HATA: " + str(e)))
-                self.after(0, lambda: self._set_status("Hata oluştu."))
+                self.after(0, lambda: self.status_var.set("Hata oluştu."))
         threading.Thread(target=worker, daemon=True).start()
-
-    # ── Ayarlar sekmesi ──────────────────────────────────────────────────────
-    def _build_settings_tab(self):
-        p = ttk.Frame(self.tab_cfg)
-        p.pack(fill="both", expand=True, padx=24, pady=20)
-
-        rows = [
-            ("AI Sağlayıcı:",   "cfg_provider",  "combo", ["grok"]),
-            ("AI API Anahtarı:", "cfg_ai_key",    "entry_secret", None),
-            ("Çıktı klasörü:",  "cfg_outdir",    "entry", None),
-            ("Video süresi (sn):", "cfg_duration","entry", None),
-        ]
-        for i, (lbl, attr, kind, opts) in enumerate(rows):
-            ttk.Label(p, text=lbl).grid(row=i, column=0, sticky="w", pady=8)
-            if kind == "combo":
-                w = ttk.Combobox(p, values=opts, width=20, state="readonly")
-                w.set(self.config_data.get("ai_provider", "grok"))
-            elif kind == "entry_secret":
-                w = ttk.Entry(p, width=48, show="*")
-                w.insert(0, self.config_data.get("ai_api_key", ""))
-            else:
-                w = ttk.Entry(p, width=48)
-                val = self.config_data.get(
-                    "output_dir" if "klasör" in lbl else "video_duration", "")
-                w.insert(0, str(val))
-            w.grid(row=i, column=1, sticky="ew", padx=(10, 0), pady=8)
-            setattr(self, attr, w)
-
-        # Grok API key bilgisi
-        info = ttk.LabelFrame(p, text="API Anahtarı Nereden Alınır?", padding=8)
-        info.grid(row=len(rows), column=0, columnspan=2, sticky="ew", pady=(12, 0))
-        ttk.Label(info, text="Grok → console.x.ai  (xAI — ücretsiz $25 kredi)",
-                  foreground="#aaa", font=("Segoe UI", 9)).pack(anchor="w")
-
-        ttk.Button(p, text="Kaydet", style="Accent.TButton",
-                   command=self._save_settings).grid(
-                   row=len(rows)+1, column=0, columnspan=2, sticky="w", pady=14)
-        p.columnconfigure(1, weight=1)
-
-    # ── Yardımcılar ──────────────────────────────────────────────────────────
-    def _log(self, tag: str, msg: str):
-        box: scrolledtext.ScrolledText = getattr(self, f"_{tag}_log")
-        box.configure(state="normal")
-        box.insert("end", msg + "\n")
-        box.see("end")
-        box.configure(state="disabled")
-
-    def _set_status(self, msg: str):
-        self.status_var.set(msg)
-
-    def _preview(self, tag: str):
-        path = getattr(self, f"_{tag}_out_path")
-        if path and os.path.exists(path):
-            os.startfile(path)
-
-    def _get_ai(self):
-        from ai_helper import AIHelper
-        return AIHelper(
-            provider=self.config_data.get("ai_provider", "grok"),
-            api_key=self.config_data.get("ai_api_key", ""),
-        )
-
-    # ── URL bilgi getir ───────────────────────────────────────────────────────
-    def _fetch_url(self):
-        url = self.url_entry.get().strip()
-        if not url:
-            messagebox.showwarning("Eksik", "Bir YouTube URL'si girin.")
-            return
-        self.url_info_lbl.configure(text="Bilgi getiriliyor...", foreground="#aaa")
-        self._url_video_context = None
-
-        def worker():
-            try:
-                from youtube_fetcher import get_video_info
-                info = get_video_info(url)
-                self._url_video_context = info
-                txt = (f"✓  {info.get('title','?')}  |  "
-                       f"{info.get('view_count',0):,} izlenme  |  "
-                       f"{info.get('channel','?')}")
-                self.after(0, lambda: self.url_info_lbl.configure(
-                    text=txt, foreground="#44ff88"))
-            except Exception as e:
-                self.after(0, lambda: self.url_info_lbl.configure(
-                    text=f"Hata: {e}", foreground="#ff6666"))
-        threading.Thread(target=worker, daemon=True).start()
-
-    # ── Script oluştur ───────────────────────────────────────────────────────
-    def _generate_script(self, tag: str):
-        ai_key = self.config_data.get("ai_api_key", "")
-        if not ai_key:
-            messagebox.showwarning("API Anahtarı Eksik",
-                                   "Ayarlar sekmesinden AI API anahtarınızı girin.")
-            return
-
-        prompt_entry = getattr(self, f"_{tag}_prompt_entry")
-        prompt = prompt_entry.get().strip()
-
-        if tag == "story":
-            story = self.story_text.get("1.0", "end").strip()
-            if story:
-                prompt = f"{prompt}\n\nHikaye/İçerik:\n{story}"
-
-        video_context = getattr(self, "_url_video_context", None) if tag == "url" else None
-
-        log = getattr(self, f"_{tag}_log")
-        log.configure(state="normal"); log.delete("1.0", "end"); log.configure(state="disabled")
-        self._log(tag, "AI script oluşturuluyor...")
-        self._set_status("AI çalışıyor...")
-
-        def worker():
-            try:
-                result = self._get_ai().generate_video_content(prompt, video_context)
-                setattr(self, f"_{tag}_script", result)
-                self.after(0, lambda: self._log(tag, f"Başlık: {result.get('title','')}"))
-                self.after(0, lambda: self._log(tag, f"İçerik: {len(result.get('content_lines',[]))} satır"))
-                self.after(0, lambda: self._log(tag, "Script hazır → 'Video Oluştur' butonuna bas."))
-                self.after(0, lambda: self._set_status("Script hazır."))
-            except Exception as e:
-                self.after(0, lambda: messagebox.showerror("AI Hatası", str(e)))
-                self.after(0, lambda: self._set_status("Hata."))
-        threading.Thread(target=worker, daemon=True).start()
-
-    # ── Video oluştur ────────────────────────────────────────────────────────
-    def _create_video(self, tag: str):
-        script = getattr(self, f"_{tag}_script")
-        if not script:
-            messagebox.showwarning("Script Yok", "Önce 'AI ile Script Oluştur' butonuna bas.")
-            return
-
-        theme    = getattr(self, f"_{tag}_theme_cb").get()
-        duration = int(self.config_data.get("video_duration", 30))
-        out_dir  = self.config_data.get("output_dir", "output_videos")
-        progress: ttk.Progressbar = getattr(self, f"_{tag}_progress")
-        preview_btn = getattr(self, f"_{tag}_preview_btn")
-        progress["value"] = 0
-        preview_btn.configure(state="disabled")
-        setattr(self, f"_{tag}_out_path", None)
-        self._set_status("Video oluşturuluyor...")
-
-        def cb(cur, total, msg):
-            pct = int(cur / max(total, 1) * 100)
-            self.after(0, lambda: progress.configure(value=pct))
-            self.after(0, lambda: self._log(tag, msg))
-            self.after(0, lambda: self._set_status(msg))
-
-        def worker():
-            try:
-                from video_creator import VideoCreator
-                vc = VideoCreator(output_dir=out_dir)
-                path = vc.create_video(
-                    script,
-                    custom_title=script.get("title", ""),
-                    custom_content="\n".join(script.get("content_lines", [])),
-                    channel_name=self.config_data.get("channel_name", ""),
-                    duration=duration,
-                    callback=cb,
-                )
-                setattr(self, f"_{tag}_out_path", path)
-                self.after(0, lambda: progress.configure(value=100))
-                self.after(0, lambda: self._log(tag, f"Tamamlandı → {path}"))
-                self.after(0, lambda: self._set_status("Hazır: " + path))
-                self.after(0, lambda: preview_btn.configure(state="normal"))
-            except Exception as e:
-                self.after(0, lambda: messagebox.showerror("Hata", str(e)))
-                self.after(0, lambda: self._log(tag, "HATA: " + str(e)))
-                self.after(0, lambda: self._set_status("Hata oluştu."))
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _save_settings(self):
-        self.config_data["ai_provider"]   = self.cfg_provider.get()
-        self.config_data["ai_api_key"]    = self.cfg_ai_key.get().strip()
-        self.config_data["output_dir"]    = self.cfg_outdir.get().strip()
-        try:
-            self.config_data["video_duration"] = int(self.cfg_duration.get())
-        except ValueError:
-            self.config_data["video_duration"] = 30
-        save_config(self.config_data)
-        messagebox.showinfo("Kaydedildi", "Ayarlar kaydedildi.")
 
 
 if __name__ == "__main__":
