@@ -267,56 +267,81 @@ def download_youtube_audio(url: str, out_dir: str, callback=None) -> str:
     return audio_path
 
 
+def _get_duration(ffmpeg: str, path: str) -> float:
+    """ffmpeg ile dosya süresini saniye cinsinden döner."""
+    import subprocess, re
+    result = subprocess.run(
+        [ffmpeg, "-i", path],
+        capture_output=True, text=True)
+    match = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", result.stderr)
+    if match:
+        h, m, s = int(match.group(1)), int(match.group(2)), float(match.group(3))
+        return h * 3600 + m * 60 + s
+    return 0.0
+
+
 def add_audio_to_video(video_path: str, audio_path: str, output_path: str,
                        volume: float = 1.0, loop_audio: bool = True,
                        callback=None) -> str:
     """Videoya ses ekle. WhatsApp/sosyal medya uyumlu H.264+AAC MP4 üretir."""
-    import subprocess
+    import subprocess, tempfile, math, os
 
     ffmpeg = _get_ffmpeg_path()
     if not ffmpeg:
         raise RuntimeError("ffmpeg bulunamadı. 'pip install imageio-ffmpeg' ile yükleyin.")
 
     if callback:
-        callback(10, 100, "Ses videoya ekleniyor (H.264 kodlanıyor)...")
+        callback(5, 100, "Video süresi hesaplanıyor...")
 
-    # Ses filtresi: önce 44100Hz'e resample → döngü (gerekirse) → ses seviyesi
-    if loop_audio:
-        # aloop ile sonsuz döngü, timestamps düzgün korunur
-        audio_filter = (
-            f"[1:a]aresample=44100,"
-            f"aloop=loop=-1:size=2147483647,"
-            f"volume={volume},"
-            f"asetpts=N/SR/TB[aout]"
-        )
-    else:
-        audio_filter = (
-            f"[1:a]aresample=44100,"
-            f"volume={volume},"
-            f"asetpts=N/SR/TB[aout]"
-        )
+    video_dur = _get_duration(ffmpeg, video_path)
+    audio_dur = _get_duration(ffmpeg, audio_path)
 
-    cmd = [
-        ffmpeg, "-y",
-        "-i", video_path,
-        "-i", audio_path,
-        "-filter_complex", audio_filter,
-        "-map", "0:v",
-        "-map", "[aout]",
-        # Video: H.264 WhatsApp/Instagram uyumlu
-        "-c:v", "libx264", "-profile:v", "baseline", "-level", "3.1",
-        "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart",
-        # Ses: AAC stereo 192k
-        "-c:a", "aac", "-b:a", "192k", "-ac", "2",
-        "-ar", "44100",
-        "-shortest",
-        output_path,
-    ]
+    # Döngü sayısını hesapla (ses videodan kısaysa)
+    loop_count = 0
+    if loop_audio and audio_dur > 0 and video_dur > 0:
+        loop_count = max(0, math.ceil(video_dur / audio_dur) - 1)
 
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg hatası:\n{proc.stderr[-800:]}")
+    if callback:
+        callback(15, 100, f"Ses hazırlanıyor (döngü: {loop_count}x)...")
+
+    # Adım 1: Sesi döngüye al ve normalize et (geçici dosyaya)
+    with tempfile.TemporaryDirectory() as td:
+        looped_audio = os.path.join(td, "looped.wav")
+
+        # -stream_loop ile tam sayıda döngü → kesintisiz ses
+        loop_cmd = [
+            ffmpeg, "-y",
+            "-stream_loop", str(loop_count),
+            "-i", audio_path,
+            "-af", f"aresample=44100,volume={volume}",
+            "-ac", "2",
+            "-ar", "44100",
+            looped_audio,
+        ]
+        r = subprocess.run(loop_cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError(f"Ses hazırlama hatası:\n{r.stderr[-600:]}")
+
+        if callback:
+            callback(40, 100, "Ses videoya ekleniyor (H.264 kodlanıyor)...")
+
+        # Adım 2: Video + hazır ses → H.264 MP4
+        mix_cmd = [
+            ffmpeg, "-y",
+            "-i", video_path,
+            "-i", looped_audio,
+            "-map", "0:v",
+            "-map", "1:a",
+            "-c:v", "libx264", "-profile:v", "baseline", "-level", "3.1",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "44100",
+            "-shortest",
+            output_path,
+        ]
+        r2 = subprocess.run(mix_cmd, capture_output=True, text=True)
+        if r2.returncode != 0:
+            raise RuntimeError(f"ffmpeg hatası:\n{r2.stderr[-800:]}")
 
     if callback:
         callback(100, 100, f"Tamamlandı → {output_path}")
