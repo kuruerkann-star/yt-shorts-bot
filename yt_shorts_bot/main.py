@@ -86,15 +86,18 @@ class App(tk.Tk):
         self.tab_url   = ttk.Frame(nb)
         self.tab_story = ttk.Frame(nb)
         self.tab_merge = ttk.Frame(nb)
+        self.tab_audio = ttk.Frame(nb)
         self.tab_cfg   = ttk.Frame(nb)
         nb.add(self.tab_url,   text="  YouTube URL  ")
         nb.add(self.tab_story, text="  Hikaye / Metin  ")
         nb.add(self.tab_merge, text="  Video Birleştir  ")
+        nb.add(self.tab_audio, text="  Ses Ekle  ")
         nb.add(self.tab_cfg,   text="  Ayarlar  ")
 
         self._build_url_tab()
         self._build_story_tab()
         self._build_merge_tab()
+        self._build_audio_tab()
         self._build_settings_tab()
 
         self.status_var = tk.StringVar(value="Hazır")
@@ -377,6 +380,209 @@ class App(tk.Tk):
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror("Hata", str(e)))
                 self.after(0, lambda: self._merge_log_msg("HATA: " + str(e)))
+                self.after(0, lambda: self._set_status("Hata oluştu."))
+        threading.Thread(target=worker, daemon=True).start()
+
+    # ── Ses Ekle sekmesi ────────────────────────────────────────────────────
+    def _build_audio_tab(self):
+        p = ttk.Frame(self.tab_audio)
+        p.pack(fill="both", expand=True, padx=16, pady=12)
+
+        # Video seç
+        vf = ttk.LabelFrame(p, text="Video Dosyası", padding=10)
+        vf.pack(fill="x", pady=(0, 8))
+        self._audio_video_entry = ttk.Entry(vf, width=60)
+        self._audio_video_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ttk.Button(vf, text="Seç...",
+                   command=self._audio_pick_video).pack(side="left")
+
+        # Ses kaynağı
+        sf = ttk.LabelFrame(p, text="Ses Kaynağı", padding=10)
+        sf.pack(fill="x", pady=(0, 8))
+
+        self._audio_source_var = tk.StringVar(value="youtube")
+        rb_frame = ttk.Frame(sf)
+        rb_frame.pack(anchor="w", pady=(0, 6))
+        ttk.Radiobutton(rb_frame, text="YouTube URL",
+                        variable=self._audio_source_var, value="youtube",
+                        command=self._audio_toggle_source).pack(side="left", padx=(0, 20))
+        ttk.Radiobutton(rb_frame, text="Yerel Dosya",
+                        variable=self._audio_source_var, value="local",
+                        command=self._audio_toggle_source).pack(side="left")
+
+        # YouTube URL satırı
+        self._audio_yt_frame = ttk.Frame(sf)
+        self._audio_yt_frame.pack(fill="x")
+        ttk.Label(self._audio_yt_frame, text="URL:").pack(side="left", padx=(0, 8))
+        self._audio_yt_entry = ttk.Entry(self._audio_yt_frame, width=60)
+        self._audio_yt_entry.pack(side="left", fill="x", expand=True)
+
+        # Yerel dosya satırı (başta gizli)
+        self._audio_local_frame = ttk.Frame(sf)
+        ttk.Label(self._audio_local_frame, text="Dosya:").pack(side="left", padx=(0, 8))
+        self._audio_local_entry = ttk.Entry(self._audio_local_frame, width=52)
+        self._audio_local_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ttk.Button(self._audio_local_frame, text="Seç...",
+                   command=self._audio_pick_local).pack(side="left")
+
+        # Ayarlar satırı
+        opt = ttk.Frame(sf)
+        opt.pack(fill="x", pady=(8, 0))
+
+        ttk.Label(opt, text="Ses seviyesi:").pack(side="left", padx=(0, 6))
+        self._audio_vol_var = tk.StringVar(value="1.0")
+        ttk.Spinbox(opt, from_=0.1, to=3.0, increment=0.1,
+                    textvariable=self._audio_vol_var, width=5).pack(side="left", padx=(0, 16))
+
+        self._audio_loop_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(opt, text="Ses döngüye girsin (video bitene kadar)",
+                        variable=self._audio_loop_var).pack(side="left")
+
+        # Çıktı
+        of = ttk.LabelFrame(p, text="Çıktı Dosyası", padding=10)
+        of.pack(fill="x", pady=(0, 8))
+        self._audio_out_entry = ttk.Entry(of, width=60)
+        self._audio_out_entry.insert(0, "output_videos/video_with_audio.mp4")
+        self._audio_out_entry.pack(side="left", fill="x", expand=True)
+
+        # Aksiyon satırı
+        act = ttk.Frame(p)
+        act.pack(fill="x", pady=(0, 6))
+        ttk.Button(act, text="Ses Ekle", style="Green.TButton",
+                   command=self._audio_start).pack(side="left", padx=(0, 8))
+        self._audio_preview_btn = ttk.Button(act, text="▶  İzle",
+                                             state="disabled",
+                                             command=self._audio_preview)
+        self._audio_preview_btn.pack(side="left", padx=(0, 6))
+        self._audio_save_btn = ttk.Button(act, text="Masaüstüne İndir",
+                                          state="disabled",
+                                          command=self._audio_save_desktop)
+        self._audio_save_btn.pack(side="left")
+
+        self._audio_progress = ttk.Progressbar(p, mode="determinate", maximum=100)
+        self._audio_progress.pack(fill="x", pady=(0, 4))
+
+        self._audio_log = scrolledtext.ScrolledText(
+            p, height=7, bg="#1a1a2e", fg="#ccc",
+            font=("Consolas", 8), state="disabled", relief="flat")
+        self._audio_log.pack(fill="both", expand=True)
+
+        self._audio_out_path = None
+
+    def _audio_toggle_source(self):
+        if self._audio_source_var.get() == "youtube":
+            self._audio_local_frame.pack_forget()
+            self._audio_yt_frame.pack(fill="x")
+        else:
+            self._audio_yt_frame.pack_forget()
+            self._audio_local_frame.pack(fill="x")
+
+    def _audio_pick_video(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="Video Seç",
+            filetypes=[("Video", "*.mp4 *.avi *.mov *.mkv *.webm"), ("Tümü", "*.*")])
+        if path:
+            self._audio_video_entry.delete(0, "end")
+            self._audio_video_entry.insert(0, path)
+
+    def _audio_pick_local(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="Ses Dosyası Seç",
+            filetypes=[("Ses", "*.mp3 *.wav *.aac *.ogg *.m4a"), ("Tümü", "*.*")])
+        if path:
+            self._audio_local_entry.delete(0, "end")
+            self._audio_local_entry.insert(0, path)
+
+    def _audio_log_msg(self, msg: str):
+        self._audio_log.configure(state="normal")
+        self._audio_log.insert("end", msg + "\n")
+        self._audio_log.see("end")
+        self._audio_log.configure(state="disabled")
+
+    def _audio_preview(self):
+        path = self._audio_out_path
+        if path and os.path.exists(path):
+            os.startfile(path)
+
+    def _audio_save_desktop(self):
+        import shutil
+        path = self._audio_out_path
+        if not path or not os.path.exists(path):
+            messagebox.showerror("Dosya Yok", "Önce ses ekleyin.")
+            return
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        base, ext = os.path.splitext(os.path.basename(path))
+        dest = os.path.join(desktop, os.path.basename(path))
+        counter = 1
+        while os.path.exists(dest):
+            dest = os.path.join(desktop, f"{base}_{counter}{ext}")
+            counter += 1
+        shutil.copy2(path, dest)
+        messagebox.showinfo("Kaydedildi", f"Masaüstüne kaydedildi:\n{dest}")
+
+    def _audio_start(self):
+        video_path = self._audio_video_entry.get().strip()
+        if not video_path or not os.path.exists(video_path):
+            messagebox.showwarning("Video Yok", "Geçerli bir video dosyası seçin.")
+            return
+
+        source   = self._audio_source_var.get()
+        yt_url   = self._audio_yt_entry.get().strip()
+        local_f  = self._audio_local_entry.get().strip()
+        out_path = self._audio_out_entry.get().strip() or "output_videos/video_with_audio.mp4"
+        try:
+            volume = float(self._audio_vol_var.get())
+        except ValueError:
+            volume = 1.0
+        loop = self._audio_loop_var.get()
+
+        if source == "youtube" and not yt_url:
+            messagebox.showwarning("URL Eksik", "YouTube URL'si girin.")
+            return
+        if source == "local" and (not local_f or not os.path.exists(local_f)):
+            messagebox.showwarning("Dosya Yok", "Geçerli bir ses dosyası seçin.")
+            return
+
+        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+
+        self._audio_progress["value"] = 0
+        self._audio_preview_btn.configure(state="disabled")
+        self._audio_save_btn.configure(state="disabled")
+        self._audio_out_path = None
+        self._audio_log.configure(state="normal")
+        self._audio_log.delete("1.0", "end")
+        self._audio_log.configure(state="disabled")
+        self._set_status("Ses ekleniyor...")
+
+        def cb(cur, total, msg):
+            pct = int(cur / max(total, 1) * 100)
+            self.after(0, lambda: self._audio_progress.configure(value=pct))
+            self.after(0, lambda: self._audio_log_msg(msg))
+            self.after(0, lambda: self._set_status(msg))
+
+        def worker():
+            try:
+                from video_editor import download_youtube_audio, add_audio_to_video
+                audio_file = local_f
+                if source == "youtube":
+                    audio_file = download_youtube_audio(
+                        yt_url, "output_videos/audio_cache", callback=cb)
+                result = add_audio_to_video(
+                    video_path, audio_file, out_path,
+                    volume=volume, loop_audio=loop, callback=cb)
+                def _done(r=result):
+                    self._audio_out_path = os.path.abspath(r)
+                    self._audio_progress.configure(value=100)
+                    self._audio_log_msg(f"Tamamlandı → {self._audio_out_path}")
+                    self._set_status("Ses ekleme tamamlandı.")
+                    self._audio_preview_btn.configure(state="normal")
+                    self._audio_save_btn.configure(state="normal")
+                self.after(0, _done)
+            except Exception as e:
+                self.after(0, lambda: messagebox.showerror("Hata", str(e)))
+                self.after(0, lambda: self._audio_log_msg("HATA: " + str(e)))
                 self.after(0, lambda: self._set_status("Hata oluştu."))
         threading.Thread(target=worker, daemon=True).start()
 

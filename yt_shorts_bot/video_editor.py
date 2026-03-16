@@ -187,3 +187,97 @@ def merge_videos(video_paths: list, output_path: str,
         callback(total_est, total_est, f"Tamamlandı → {output_path}")
 
     return output_path
+
+
+def download_youtube_audio(url: str, out_dir: str, callback=None) -> str:
+    """YouTube URL'den sadece ses indir. mp3 olarak döner."""
+    import yt_dlp
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    outtmpl = str(out_dir / "%(title).60s.%(ext)s")
+
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "outtmpl": outtmpl,
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }],
+        "quiet": True,
+        "no_warnings": True,
+    }
+
+    if callback:
+        callback(0, 100, "YouTube'dan ses indiriliyor...")
+
+    result_path = []
+
+    def progress_hook(d):
+        if d["status"] == "downloading" and callback:
+            total = d.get("total_bytes") or d.get("total_bytes_estimate") or 1
+            downloaded = d.get("downloaded_bytes", 0)
+            pct = int(downloaded / total * 80)
+            callback(pct, 100, f"İndiriliyor... {d.get('_percent_str','').strip()}")
+        elif d["status"] == "finished":
+            result_path.append(d["filename"])
+
+    ydl_opts["progress_hooks"] = [progress_hook]
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        title = info.get("title", "audio")
+
+    if callback:
+        callback(85, 100, "Ses dönüştürülüyor (mp3)...")
+
+    # yt-dlp .mp3 uzantısını kendisi ekler
+    candidates = list(out_dir.glob("*.mp3"))
+    if not candidates:
+        raise RuntimeError("Ses dosyası oluşturulamadı.")
+    # En son değiştirilen mp3'ü al
+    audio_path = str(max(candidates, key=lambda f: f.stat().st_mtime))
+
+    if callback:
+        callback(100, 100, f"Ses indirildi → {audio_path}")
+
+    return audio_path
+
+
+def add_audio_to_video(video_path: str, audio_path: str, output_path: str,
+                       volume: float = 1.0, loop_audio: bool = True,
+                       callback=None) -> str:
+    """Videoya ses ekle. ffmpeg kullanır."""
+    import subprocess, shutil
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg bulunamadı. Lütfen ffmpeg'i yükleyin.")
+
+    if callback:
+        callback(10, 100, "Ses videoya ekleniyor...")
+
+    # loop_audio: ses video boyunca döngüye girer
+    loop_flag = ["-stream_loop", "-1"] if loop_audio else []
+
+    cmd = (
+        [ffmpeg, "-y"]
+        + ["-i", video_path]
+        + loop_flag
+        + ["-i", audio_path]
+        + ["-c:v", "copy"]
+        + ["-c:a", "aac", "-b:a", "192k"]
+        + ["-filter:a", f"volume={volume}"]
+        + ["-shortest"]
+        + [output_path]
+    )
+
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg hatası:\n{proc.stderr[-600:]}")
+
+    if callback:
+        callback(100, 100, f"Tamamlandı → {output_path}")
+
+    return output_path
