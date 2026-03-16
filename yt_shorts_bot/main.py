@@ -293,8 +293,14 @@ class App(tk.Tk):
             self._merge_listbox.delete(sel[0])
 
     def _merge_preview(self):
-        if self._merge_out_path and os.path.exists(self._merge_out_path):
-            os.startfile(self._merge_out_path)
+        path = self._merge_out_path
+        if not path:
+            return
+        path = os.path.abspath(path)
+        if os.path.exists(path):
+            os.startfile(path)
+        else:
+            messagebox.showerror("Dosya Bulunamadı", f"Video dosyası bulunamadı:\n{path}")
 
     def _merge_log_msg(self, msg: str):
         self._merge_log.configure(state="normal")
@@ -338,11 +344,13 @@ class App(tk.Tk):
                                       transition=effect,
                                       transition_sec=dur,
                                       callback=cb)
-                self._merge_out_path = result
-                self.after(0, lambda: self._merge_progress.configure(value=100))
-                self.after(0, lambda: self._merge_log_msg(f"Tamamlandı → {result}"))
-                self.after(0, lambda: self._set_status("Birleştirme tamamlandı."))
-                self.after(0, lambda: self._merge_preview_btn.configure(state="normal"))
+                def _done(r=result):
+                    self._merge_out_path = os.path.abspath(r)
+                    self._merge_progress.configure(value=100)
+                    self._merge_log_msg(f"Tamamlandı → {self._merge_out_path}")
+                    self._set_status("Birleştirme tamamlandı.")
+                    self._merge_preview_btn.configure(state="normal")
+                self.after(0, _done)
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror("Hata", str(e)))
                 self.after(0, lambda: self._merge_log_msg("HATA: " + str(e)))
