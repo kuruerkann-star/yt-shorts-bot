@@ -280,27 +280,43 @@ def add_audio_to_video(video_path: str, audio_path: str, output_path: str,
     if callback:
         callback(10, 100, "Ses videoya ekleniyor (H.264 kodlanıyor)...")
 
-    loop_flag = ["-stream_loop", "-1"] if loop_audio else []
+    # Ses filtresi: önce 44100Hz'e resample → döngü (gerekirse) → ses seviyesi
+    if loop_audio:
+        # aloop ile sonsuz döngü, timestamps düzgün korunur
+        audio_filter = (
+            f"[1:a]aresample=44100,"
+            f"aloop=loop=-1:size=2147483647,"
+            f"volume={volume},"
+            f"asetpts=N/SR/TB[aout]"
+        )
+    else:
+        audio_filter = (
+            f"[1:a]aresample=44100,"
+            f"volume={volume},"
+            f"asetpts=N/SR/TB[aout]"
+        )
 
-    cmd = (
-        [ffmpeg, "-y"]
-        + ["-i", video_path]
-        + loop_flag
-        + ["-i", audio_path]
-        # Video: H.264, WhatsApp/WP/Instagram uyumlu profil
-        + ["-c:v", "libx264", "-profile:v", "baseline", "-level", "3.1"]
-        + ["-pix_fmt", "yuv420p"]          # renk uzayı uyumluluğu
-        + ["-movflags", "+faststart"]      # web/mobil için optimize
+    cmd = [
+        ffmpeg, "-y",
+        "-i", video_path,
+        "-i", audio_path,
+        "-filter_complex", audio_filter,
+        "-map", "0:v",
+        "-map", "[aout]",
+        # Video: H.264 WhatsApp/Instagram uyumlu
+        "-c:v", "libx264", "-profile:v", "baseline", "-level", "3.1",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
         # Ses: AAC stereo 192k
-        + ["-c:a", "aac", "-b:a", "192k", "-ac", "2"]
-        + ["-filter:a", f"volume={volume}"]
-        + ["-shortest"]
-        + [output_path]
-    )
+        "-c:a", "aac", "-b:a", "192k", "-ac", "2",
+        "-ar", "44100",
+        "-shortest",
+        output_path,
+    ]
 
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg hatası:\n{proc.stderr[-600:]}")
+        raise RuntimeError(f"ffmpeg hatası:\n{proc.stderr[-800:]}")
 
     if callback:
         callback(100, 100, f"Tamamlandı → {output_path}")
