@@ -296,30 +296,39 @@ def add_audio_to_video(video_path: str, audio_path: str, output_path: str,
     video_dur = _get_duration(ffmpeg, video_path)
     audio_dur = _get_duration(ffmpeg, audio_path)
 
-    loop_count = 0
+    # Kaç kere tekrar gerekiyor
+    repeat = 1
     if loop_audio and audio_dur > 0 and video_dur > 0:
-        loop_count = max(0, math.ceil(video_dur / audio_dur) - 1)
+        repeat = max(1, math.ceil(video_dur / audio_dur))
 
     if callback:
-        callback(20, 100, f"Ses ekleniyor (döngü: {loop_count}x, H.264 kodlanıyor)...")
+        callback(20, 100, f"Ses hazırlanıyor ({repeat}x döngü)...")
 
-    # Tek adım: stream_loop ile MP3'ü doğrudan oku → AAC'ye encode et
-    # WAV ara dosyası YOK → dönüşüm zinciri kısa → ses kalitesi korunur
+    # concat filtresi: sesi repeat kez üst üste yapıştır → kesintisiz döngü
+    # stream_loop yerine concat kullanılıyor — timestamp sorunu yok
+    concat_inputs  = "".join(f"[1:a]" for _ in range(repeat))
+    filter_complex = (
+        f"{concat_inputs}concat=n={repeat}:v=0:a=1[aloop];"
+        f"[aloop]volume={volume}[aout]"
+    )
+
     cmd = [
         ffmpeg, "-y",
-        "-stream_loop", str(loop_count),
-        "-i", audio_path,
         "-i", video_path,
-        "-map", "1:v",
-        "-map", "0:a",
+        "-i", audio_path,
+        "-filter_complex", filter_complex,
+        "-map", "0:v",
+        "-map", "[aout]",
         "-c:v", "libx264", "-profile:v", "baseline", "-level", "3.1",
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
         "-c:a", "aac", "-b:a", "256k", "-ac", "2", "-ar", "44100",
-        "-af", f"volume={volume}",
         "-shortest",
         output_path,
     ]
+
+    if callback:
+        callback(40, 100, "Video kodlanıyor (H.264 + AAC)...")
 
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
