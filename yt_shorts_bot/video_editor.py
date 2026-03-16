@@ -224,7 +224,7 @@ def download_youtube_audio(url: str, out_dir: str, callback=None) -> str:
 
     if ffmpeg_path:
         import os
-        ydl_opts["ffmpeg_location"] = os.path.dirname(ffmpeg_path)
+        ydl_opts["ffmpeg_location"] = ffmpeg_path
 
     if callback:
         callback(0, 100, "YouTube'dan ses indiriliyor...")
