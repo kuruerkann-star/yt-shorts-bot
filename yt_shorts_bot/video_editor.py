@@ -189,12 +189,25 @@ def merge_videos(video_paths: list, output_path: str,
     return output_path
 
 
+def _get_ffmpeg_path() -> str:
+    import shutil
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        try:
+            import imageio_ffmpeg
+            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        except ImportError:
+            pass
+    return ffmpeg or ""
+
+
 def download_youtube_audio(url: str, out_dir: str, callback=None) -> str:
     """YouTube URL'den sadece ses indir. mp3 olarak döner."""
     import yt_dlp
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    ffmpeg_path = _get_ffmpeg_path()
     outtmpl = str(out_dir / "%(title).60s.%(ext)s")
 
     ydl_opts = {
@@ -209,10 +222,14 @@ def download_youtube_audio(url: str, out_dir: str, callback=None) -> str:
         "no_warnings": True,
     }
 
+    if ffmpeg_path:
+        import os
+        ydl_opts["ffmpeg_location"] = os.path.dirname(ffmpeg_path)
+
     if callback:
         callback(0, 100, "YouTube'dan ses indiriliyor...")
 
-    result_path = []
+    final_path = []
 
     def progress_hook(d):
         if d["status"] == "downloading" and callback:
@@ -221,23 +238,28 @@ def download_youtube_audio(url: str, out_dir: str, callback=None) -> str:
             pct = int(downloaded / total * 80)
             callback(pct, 100, f"İndiriliyor... {d.get('_percent_str','').strip()}")
         elif d["status"] == "finished":
-            result_path.append(d["filename"])
+            final_path.append(d.get("filename", ""))
 
     ydl_opts["progress_hooks"] = [progress_hook]
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        title = info.get("title", "audio")
+        ydl.extract_info(url, download=True)
 
     if callback:
         callback(85, 100, "Ses dönüştürülüyor (mp3)...")
 
-    # yt-dlp .mp3 uzantısını kendisi ekler
-    candidates = list(out_dir.glob("*.mp3"))
+    # En son indirilen mp3'ü bul
+    candidates = sorted(out_dir.glob("*.mp3"), key=lambda f: f.stat().st_mtime, reverse=True)
     if not candidates:
-        raise RuntimeError("Ses dosyası oluşturulamadı.")
-    # En son değiştirilen mp3'ü al
-    audio_path = str(max(candidates, key=lambda f: f.stat().st_mtime))
+        # mp3 yoksa herhangi bir ses dosyasını dene
+        for ext in ("*.webm", "*.m4a", "*.opus", "*.ogg"):
+            candidates = sorted(out_dir.glob(ext), key=lambda f: f.stat().st_mtime, reverse=True)
+            if candidates:
+                break
+    if not candidates:
+        raise RuntimeError("Ses dosyası oluşturulamadı. ffmpeg kurulu mu?")
+
+    audio_path = str(candidates[0])
 
     if callback:
         callback(100, 100, f"Ses indirildi → {audio_path}")
@@ -249,15 +271,9 @@ def add_audio_to_video(video_path: str, audio_path: str, output_path: str,
                        volume: float = 1.0, loop_audio: bool = True,
                        callback=None) -> str:
     """Videoya ses ekle. ffmpeg kullanır."""
-    import subprocess, shutil
+    import subprocess
 
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        try:
-            import imageio_ffmpeg
-            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-        except ImportError:
-            pass
+    ffmpeg = _get_ffmpeg_path()
     if not ffmpeg:
         raise RuntimeError("ffmpeg bulunamadı. 'pip install imageio-ffmpeg' ile yükleyin.")
 
