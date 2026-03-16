@@ -247,7 +247,11 @@ class App(tk.Tk):
         self._merge_preview_btn = ttk.Button(act, text="▶  İzle",
                                               state="disabled",
                                               command=self._merge_preview)
-        self._merge_preview_btn.pack(side="left")
+        self._merge_preview_btn.pack(side="left", padx=(0, 6))
+        self._merge_save_btn = ttk.Button(act, text="Masaüstüne İndir",
+                                          state="disabled",
+                                          command=self._merge_save_to_desktop)
+        self._merge_save_btn.pack(side="left")
 
         self._merge_progress = ttk.Progressbar(p, mode="determinate", maximum=100)
         self._merge_progress.pack(fill="x", pady=(0, 4))
@@ -302,6 +306,23 @@ class App(tk.Tk):
         else:
             messagebox.showerror("Dosya Bulunamadı", f"Video dosyası bulunamadı:\n{path}")
 
+    def _merge_save_to_desktop(self):
+        import shutil
+        path = self._merge_out_path
+        if not path or not os.path.exists(path):
+            messagebox.showerror("Dosya Yok", "Önce video birleştirin.")
+            return
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        dest = os.path.join(desktop, os.path.basename(path))
+        # Aynı isimde dosya varsa numaralandır
+        base, ext = os.path.splitext(os.path.basename(path))
+        counter = 1
+        while os.path.exists(dest):
+            dest = os.path.join(desktop, f"{base}_{counter}{ext}")
+            counter += 1
+        shutil.copy2(path, dest)
+        messagebox.showinfo("Kaydedildi", f"Video masaüstüne kaydedildi:\n{dest}")
+
     def _merge_log_msg(self, msg: str):
         self._merge_log.configure(state="normal")
         self._merge_log.insert("end", msg + "\n")
@@ -325,6 +346,7 @@ class App(tk.Tk):
 
         self._merge_progress["value"] = 0
         self._merge_preview_btn.configure(state="disabled")
+        self._merge_save_btn.configure(state="disabled")
         self._merge_out_path = None
         self._merge_log.configure(state="normal")
         self._merge_log.delete("1.0", "end")
@@ -350,6 +372,7 @@ class App(tk.Tk):
                     self._merge_log_msg(f"Tamamlandı → {self._merge_out_path}")
                     self._set_status("Birleştirme tamamlandı.")
                     self._merge_preview_btn.configure(state="normal")
+                    self._merge_save_btn.configure(state="normal")
                 self.after(0, _done)
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror("Hata", str(e)))
