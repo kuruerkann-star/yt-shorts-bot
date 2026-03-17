@@ -60,14 +60,11 @@ class App(tk.Tk):
 
         self.tab_merge = ttk.Frame(nb)
         self.tab_audio = ttk.Frame(nb)
-        self.tab_tts   = ttk.Frame(nb)
         nb.add(self.tab_merge, text="  Video Birleştir  ")
         nb.add(self.tab_audio, text="  Müzik Ekle  ")
-        nb.add(self.tab_tts,   text="  Ses Üret  ")
 
         self._build_merge_tab()
         self._build_audio_tab()
-        self._build_tts_tab()
 
         self.status_var = tk.StringVar(value="Hazır")
         tk.Label(self, textvariable=self.status_var, bg="#1a1a2e", fg="#aaa",
@@ -433,155 +430,6 @@ class App(tk.Tk):
                 self.after(0, lambda: self._audio_log_msg("HATA: " + str(e)))
                 self.after(0, lambda: self.status_var.set("Hata oluştu."))
         threading.Thread(target=worker, daemon=True).start()
-
-
-    # ── Ses Üret (TTS) ──────────────────────────────────────────────────────
-    def _build_tts_tab(self):
-        p = ttk.Frame(self.tab_tts)
-        p.pack(fill="both", expand=True, padx=16, pady=12)
-
-        # Metin girişi
-        tf = ttk.LabelFrame(p, text="Seslendirilecek Metin", padding=10)
-        tf.pack(fill="both", expand=True, pady=(0, 8))
-        self._tts_text = tk.Text(
-            tf, height=8, bg="#1a1a2e", fg="#fff", insertbackground="#fff",
-            font=("Segoe UI", 11), relief="flat", wrap="word")
-        self._tts_text.pack(fill="both", expand=True)
-        self._tts_text.insert("1.0", "Merhaba! Bu bir test sesidir.")
-
-        # Ayarlar
-        af = ttk.LabelFrame(p, text="Ses Ayarları", padding=10)
-        af.pack(fill="x", pady=(0, 8))
-
-        ttk.Label(af, text="Dil:").grid(row=0, column=0, sticky="w", padx=(0, 8))
-        self._tts_lang = ttk.Combobox(af, width=18, state="readonly", values=[
-            "Türkçe (tr)", "İngilizce (en)", "Almanca (de)",
-            "Fransızca (fr)", "İspanyolca (es)", "Japonca (ja)"])
-        self._tts_lang.set("Türkçe (tr)")
-        self._tts_lang.grid(row=0, column=1, sticky="w", pady=4, padx=(0, 20))
-
-        ttk.Label(af, text="Hız:").grid(row=0, column=2, sticky="w", padx=(0, 8))
-        self._tts_slow = tk.BooleanVar(value=False)
-        ttk.Checkbutton(af, text="Yavaş oku",
-                        variable=self._tts_slow).grid(row=0, column=3, sticky="w")
-
-        ttk.Label(af, text="Çıktı:").grid(row=1, column=0, sticky="w", padx=(0, 8))
-        self._tts_out_entry = ttk.Entry(af, width=50)
-        self._tts_out_entry.insert(0, "output_videos/tts_output.mp3")
-        self._tts_out_entry.grid(row=1, column=1, columnspan=3, sticky="ew", pady=4)
-        af.columnconfigure(1, weight=1)
-
-        # Aksiyon satırı
-        act = ttk.Frame(p)
-        act.pack(fill="x", pady=(0, 6))
-        ttk.Button(act, text="Ses Üret", style="Green.TButton",
-                   command=self._tts_generate).pack(side="left", padx=(0, 8))
-        self._tts_play_btn = ttk.Button(act, text="▶  Dinle", state="disabled",
-                                         command=self._tts_play)
-        self._tts_play_btn.pack(side="left", padx=(0, 6))
-        self._tts_use_btn = ttk.Button(act, text="→  Müzik Ekle'ye Gönder",
-                                        state="disabled",
-                                        command=self._tts_send_to_audio)
-        self._tts_use_btn.pack(side="left", padx=(0, 6))
-        self._tts_save_btn = ttk.Button(act, text="Masaüstüne İndir",
-                                         state="disabled",
-                                         command=self._tts_save_desktop)
-        self._tts_save_btn.pack(side="left")
-
-        self._tts_progress = ttk.Progressbar(p, mode="indeterminate")
-        self._tts_progress.pack(fill="x", pady=(0, 4))
-
-        self._tts_status = tk.StringVar(value="")
-        tk.Label(p, textvariable=self._tts_status, bg="#0f0f1a",
-                 fg="#aaa", font=("Segoe UI", 9), anchor="w"
-                 ).pack(fill="x")
-
-        self._tts_out_path = None
-
-    _TTS_LANG_MAP = {
-        "Türkçe (tr)": "tr",
-        "İngilizce (en)": "en",
-        "Almanca (de)": "de",
-        "Fransızca (fr)": "fr",
-        "İspanyolca (es)": "es",
-        "Japonca (ja)": "ja",
-    }
-
-    def _tts_generate(self):
-        text = self._tts_text.get("1.0", "end").strip()
-        if not text:
-            messagebox.showwarning("Boş Metin", "Seslendirilecek metin girin.")
-            return
-        lang    = self._TTS_LANG_MAP.get(self._tts_lang.get(), "tr")
-        slow    = self._tts_slow.get()
-        out_path = self._tts_out_entry.get().strip() or "output_videos/tts_output.mp3"
-        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
-
-        self._tts_play_btn.configure(state="disabled")
-        self._tts_use_btn.configure(state="disabled")
-        self._tts_save_btn.configure(state="disabled")
-        self._tts_out_path = None
-        self._tts_progress.start(10)
-        self._tts_status.set("Ses üretiliyor...")
-        self.status_var.set("TTS çalışıyor...")
-
-        def worker():
-            try:
-                from gtts import gTTS
-                tts = gTTS(text=text, lang=lang, slow=slow)
-                tts.save(out_path)
-                def _done():
-                    self._tts_out_path = os.path.abspath(out_path)
-                    self._tts_progress.stop()
-                    self._tts_progress["value"] = 100
-                    self._tts_status.set(f"Tamamlandı → {self._tts_out_path}")
-                    self.status_var.set("Ses üretildi.")
-                    self._tts_play_btn.configure(state="normal")
-                    self._tts_use_btn.configure(state="normal")
-                    self._tts_save_btn.configure(state="normal")
-                self.after(0, _done)
-            except Exception as e:
-                def _err(msg=str(e)):
-                    self._tts_progress.stop()
-                    self._tts_status.set("HATA: " + msg)
-                    self.status_var.set("Hata oluştu.")
-                    messagebox.showerror("TTS Hatası", msg)
-                self.after(0, _err)
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _tts_play(self):
-        if self._tts_out_path and os.path.exists(self._tts_out_path):
-            os.startfile(self._tts_out_path)
-
-    def _tts_send_to_audio(self):
-        if not self._tts_out_path or not os.path.exists(self._tts_out_path):
-            return
-        self._audio_source_var.set("local")
-        self._audio_toggle()
-        self._audio_local_entry.delete(0, "end")
-        self._audio_local_entry.insert(0, self._tts_out_path)
-        # Ses Ekle sekmesine geç (index 1)
-        for w in self.winfo_children():
-            if isinstance(w, ttk.Notebook):
-                w.select(1)
-                break
-        self.status_var.set("Müzik dosyası Müzik Ekle sekmesine gönderildi.")
-
-    def _tts_save_desktop(self):
-        import shutil
-        path = self._tts_out_path
-        if not path or not os.path.exists(path):
-            messagebox.showerror("Dosya Yok", "Önce ses üretin.")
-            return
-        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-        base, ext = os.path.splitext(os.path.basename(path))
-        dest = os.path.join(desktop, os.path.basename(path))
-        c = 1
-        while os.path.exists(dest):
-            dest = os.path.join(desktop, f"{base}_{c}{ext}"); c += 1
-        shutil.copy2(path, dest)
-        messagebox.showinfo("Kaydedildi", f"Masaüstüne kaydedildi:\n{dest}")
 
 
 if __name__ == "__main__":
