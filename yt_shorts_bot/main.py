@@ -58,13 +58,16 @@ class App(tk.Tk):
         nb = ttk.Notebook(self)
         nb.pack(fill="both", expand=True)
 
-        self.tab_merge = ttk.Frame(nb)
-        self.tab_audio = ttk.Frame(nb)
-        nb.add(self.tab_merge, text="  Video Birleştir  ")
-        nb.add(self.tab_audio, text="  Müzik Ekle  ")
+        self.tab_merge  = ttk.Frame(nb)
+        self.tab_audio  = ttk.Frame(nb)
+        self.tab_trends = ttk.Frame(nb)
+        nb.add(self.tab_merge,  text="  Video Birleştir  ")
+        nb.add(self.tab_audio,  text="  Müzik Ekle  ")
+        nb.add(self.tab_trends, text="  Trend Shorts  ")
 
         self._build_merge_tab()
         self._build_audio_tab()
+        self._build_trends_tab()
 
         self.status_var = tk.StringVar(value="Hazır")
         tk.Label(self, textvariable=self.status_var, bg="#1a1a2e", fg="#aaa",
@@ -429,6 +432,200 @@ class App(tk.Tk):
                 self.after(0, lambda: messagebox.showerror("Hata", str(e)))
                 self.after(0, lambda: self._audio_log_msg("HATA: " + str(e)))
                 self.after(0, lambda: self.status_var.set("Hata oluştu."))
+        threading.Thread(target=worker, daemon=True).start()
+
+
+    # ── Trend Shorts ─────────────────────────────────────────────────────────
+    def _build_trends_tab(self):
+        from trends_fetcher import CATEGORIES
+        p = ttk.Frame(self.tab_trends)
+        p.pack(fill="both", expand=True, padx=16, pady=12)
+
+        # Üst kontrol satırı
+        ctrl = ttk.Frame(p)
+        ctrl.pack(fill="x", pady=(0, 8))
+
+        ttk.Label(ctrl, text="Kategori:").pack(side="left", padx=(0, 8))
+        self._tr_cat = ttk.Combobox(ctrl, values=list(CATEGORIES.keys()),
+                                    width=18, state="readonly")
+        self._tr_cat.set("Genel Trend")
+        self._tr_cat.pack(side="left", padx=(0, 8))
+        self._tr_cat.bind("<<ComboboxSelected>>", self._tr_on_cat)
+
+        ttk.Label(ctrl, text="Özel arama:").pack(side="left", padx=(0, 6))
+        self._tr_search = ttk.Entry(ctrl, width=28)
+        self._tr_search.pack(side="left", padx=(0, 8))
+        self._tr_search.configure(state="disabled")
+
+        ttk.Label(ctrl, text="Sonuç:").pack(side="left", padx=(0, 4))
+        self._tr_count = ttk.Combobox(ctrl, values=["10","20","30","50"],
+                                      width=5, state="readonly")
+        self._tr_count.set("20")
+        self._tr_count.pack(side="left", padx=(0, 8))
+
+        ttk.Button(ctrl, text="Ara 🔍", style="Green.TButton",
+                   command=self._tr_fetch).pack(side="left")
+
+        # Tablo başlıkları
+        cols = ("rank","title","views","channel","duration","url")
+        hdr  = ttk.Frame(p)
+        hdr.pack(fill="x")
+        self._tr_tree = ttk.Treeview(
+            p, columns=cols, show="headings",
+            selectmode="browse", height=16)
+
+        for col, txt, w in [
+            ("rank",     "#",         40),
+            ("title",    "Başlık",   320),
+            ("views",    "İzlenme",   90),
+            ("channel",  "Kanal",    160),
+            ("duration", "Süre",      55),
+            ("url",      "URL",        0),
+        ]:
+            self._tr_tree.heading(col, text=txt)
+            self._tr_tree.column(col, width=w, minwidth=w,
+                                 stretch=(col == "title"))
+
+        self._tr_tree.column("url", width=0, minwidth=0, stretch=False)
+        vsb = ttk.Scrollbar(p, orient="vertical",
+                            command=self._tr_tree.yview)
+        self._tr_tree.configure(yscrollcommand=vsb.set)
+        self._tr_tree.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+
+        # Satır renklendirme
+        self._tr_tree.tag_configure("odd",  background="#1a1a2e")
+        self._tr_tree.tag_configure("even", background="#16213e")
+        self._tr_tree.bind("<Double-1>", self._tr_open_url)
+
+        # Alt butonlar
+        bot = ttk.Frame(p)
+        bot.pack(fill="x", pady=(6, 0), side="bottom")
+        ttk.Button(bot, text="▶  Tarayıcıda Aç",
+                   command=self._tr_open_url).pack(side="left", padx=(0, 8))
+        ttk.Button(bot, text="⬇  URL'yi Müzik Ekle'ye Kopyala",
+                   command=self._tr_copy_to_audio).pack(side="left", padx=(0, 8))
+        ttk.Button(bot, text="⬇  İndir (MP4)",
+                   command=self._tr_download).pack(side="left")
+
+        self._tr_progress = ttk.Progressbar(p, mode="determinate", maximum=100)
+        self._tr_progress.pack(fill="x", pady=(4, 0), side="bottom")
+
+        self._tr_results = []
+
+    def _tr_on_cat(self, _=None):
+        if self._tr_cat.get() == "Özel Arama":
+            self._tr_search.configure(state="normal")
+        else:
+            self._tr_search.configure(state="disabled")
+
+    def _tr_fetch(self):
+        from trends_fetcher import CATEGORIES, fetch_trending
+        cat = self._tr_cat.get()
+        query = CATEGORIES.get(cat)
+        if query is None:
+            custom = self._tr_search.get().strip()
+            if not custom:
+                messagebox.showwarning("Arama Boş", "Özel arama terimi girin.")
+                return
+            query = f"ytsearchdate40:{custom} #shorts"
+
+        max_r = int(self._tr_count.get())
+
+        # Listeyi temizle
+        for row in self._tr_tree.get_children():
+            self._tr_tree.delete(row)
+        self._tr_results = []
+        self._tr_progress["value"] = 0
+        self.status_var.set("Trend shortlar aranıyor...")
+
+        def cb(cur, total, msg):
+            pct = int(cur / max(total, 1) * 100)
+            self.after(0, lambda: self._tr_progress.configure(value=pct))
+            self.after(0, lambda: self.status_var.set(msg))
+
+        def worker():
+            try:
+                from trends_fetcher import fmt_num
+                results = fetch_trending(query, max_r, callback=cb)
+                def _done(res=results):
+                    self._tr_results = res
+                    for i, r in enumerate(res):
+                        dur = f"{r['duration']//60}:{r['duration']%60:02d}"
+                        tag = "odd" if i % 2 else "even"
+                        self._tr_tree.insert("", "end", iid=str(i),
+                            values=(i+1, r["title"], fmt_num(r["views"]),
+                                    r["channel"], dur, r["url"]),
+                            tags=(tag,))
+                    self._tr_progress.configure(value=100)
+                    self.status_var.set(
+                        f"{len(res)} trend short listelendi — çift tıklayarak aç")
+                self.after(0, _done)
+            except Exception as e:
+                self.after(0, lambda: messagebox.showerror("Hata", str(e)))
+                self.after(0, lambda: self.status_var.set("Hata oluştu."))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _tr_selected_url(self):
+        sel = self._tr_tree.selection()
+        if not sel:
+            messagebox.showinfo("Seçim Yok", "Listeden bir video seçin.")
+            return None
+        idx = int(sel[0])
+        return self._tr_results[idx]["url"] if idx < len(self._tr_results) else None
+
+    def _tr_open_url(self, _=None):
+        url = self._tr_selected_url()
+        if url:
+            import webbrowser
+            webbrowser.open(url)
+
+    def _tr_copy_to_audio(self):
+        url = self._tr_selected_url()
+        if not url:
+            return
+        # Müzik Ekle sekmesine geç ve URL'yi yapıştır
+        self._audio_source_var.set("youtube")
+        self._audio_toggle()
+        self._audio_yt_entry.delete(0, "end")
+        self._audio_yt_entry.insert(0, url)
+        for w in self.winfo_children():
+            if isinstance(w, ttk.Notebook):
+                w.select(1)
+                break
+        self.status_var.set("URL Müzik Ekle sekmesine kopyalandı.")
+
+    def _tr_download(self):
+        url = self._tr_selected_url()
+        if not url:
+            return
+        out_dir = "output_videos"
+        os.makedirs(out_dir, exist_ok=True)
+        self.status_var.set("Video indiriliyor...")
+        self._tr_progress["value"] = 0
+
+        def worker():
+            try:
+                import yt_dlp
+                ydl_opts = {
+                    "format": "bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                    "outtmpl": f"{out_dir}/%(title).60s.%(ext)s",
+                    "quiet": True,
+                    "merge_output_format": "mp4",
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    title = info.get("title","video")
+                self.after(0, lambda: self.status_var.set(
+                    f"İndirildi: {title[:50]}"))
+                self.after(0, lambda: self._tr_progress.configure(value=100))
+                self.after(0, lambda: messagebox.showinfo(
+                    "İndirildi", f"Video indirildi:\noutput_videos klasörüne kaydedildi."))
+            except Exception as e:
+                self.after(0, lambda: messagebox.showerror("Hata", str(e)))
+                self.after(0, lambda: self.status_var.set("İndirme hatası."))
+
         threading.Thread(target=worker, daemon=True).start()
 
 
