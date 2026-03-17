@@ -62,7 +62,7 @@ class App(tk.Tk):
         self.tab_audio = ttk.Frame(nb)
         self.tab_tts   = ttk.Frame(nb)
         nb.add(self.tab_merge, text="  Video Birleştir  ")
-        nb.add(self.tab_audio, text="  Ses Ekle  ")
+        nb.add(self.tab_audio, text="  Müzik Ekle  ")
         nb.add(self.tab_tts,   text="  Ses Üret  ")
 
         self._build_merge_tab()
@@ -264,7 +264,7 @@ class App(tk.Tk):
         ttk.Button(vf, text="Seç...",
                    command=self._audio_pick_video).pack(side="left")
 
-        sf = ttk.LabelFrame(p, text="Ses Kaynağı", padding=10)
+        sf = ttk.LabelFrame(p, text="Müzik Kaynağı", padding=10)
         sf.pack(fill="x", pady=(0, 8))
 
         self._audio_source_var = tk.StringVar(value="youtube")
@@ -290,12 +290,12 @@ class App(tk.Tk):
 
         opt = ttk.Frame(sf)
         opt.pack(fill="x", pady=(8, 0))
-        ttk.Label(opt, text="Ses seviyesi:").pack(side="left", padx=(0, 6))
+        ttk.Label(opt, text="Müzik seviyesi:").pack(side="left", padx=(0, 6))
         self._audio_vol_var = tk.StringVar(value="1.0")
         ttk.Spinbox(opt, from_=0.1, to=3.0, increment=0.1,
                     textvariable=self._audio_vol_var, width=5).pack(side="left", padx=(0, 16))
         self._audio_loop_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(opt, text="Ses döngüye girsin",
+        ttk.Checkbutton(opt, text="Müzik döngüye girsin",
                         variable=self._audio_loop_var).pack(side="left")
 
         of = ttk.LabelFrame(p, text="Çıktı Dosyası", padding=10)
@@ -306,7 +306,7 @@ class App(tk.Tk):
 
         act = ttk.Frame(p)
         act.pack(fill="x", pady=(0, 6))
-        ttk.Button(act, text="Ses Ekle", style="Green.TButton",
+        ttk.Button(act, text="Müzik Ekle", style="Green.TButton",
                    command=self._audio_start).pack(side="left", padx=(0, 8))
         self._audio_preview_btn = ttk.Button(act, text="▶  İzle", state="disabled",
                                               command=self._audio_preview)
@@ -403,7 +403,7 @@ class App(tk.Tk):
         self._audio_log.configure(state="normal")
         self._audio_log.delete("1.0", "end")
         self._audio_log.configure(state="disabled")
-        self.status_var.set("Ses ekleniyor...")
+        self.status_var.set("Müzik ekleniyor...")
 
         def cb(cur, total, msg):
             pct = int(cur / max(total, 1) * 100)
@@ -424,7 +424,7 @@ class App(tk.Tk):
                     self._audio_out_path = os.path.abspath(r)
                     self._audio_progress.configure(value=100)
                     self._audio_log_msg(f"Tamamlandı → {self._audio_out_path}")
-                    self.status_var.set("Ses ekleme tamamlandı.")
+                    self.status_var.set("Müzik ekleme tamamlandı.")
                     self._audio_preview_btn.configure(state="normal")
                     self._audio_save_btn.configure(state="normal")
                 self.after(0, _done)
@@ -479,7 +479,7 @@ class App(tk.Tk):
         self._tts_play_btn = ttk.Button(act, text="▶  Dinle", state="disabled",
                                          command=self._tts_play)
         self._tts_play_btn.pack(side="left", padx=(0, 6))
-        self._tts_use_btn = ttk.Button(act, text="→  Ses Ekle'ye Gönder",
+        self._tts_use_btn = ttk.Button(act, text="→  Müzik Ekle'ye Gönder",
                                         state="disabled",
                                         command=self._tts_send_to_audio)
         self._tts_use_btn.pack(side="left", padx=(0, 6))
@@ -566,7 +566,7 @@ class App(tk.Tk):
             if isinstance(w, ttk.Notebook):
                 w.select(1)
                 break
-        self.status_var.set("Ses dosyası Ses Ekle sekmesine gönderildi.")
+        self.status_var.set("Müzik dosyası Müzik Ekle sekmesine gönderildi.")
 
     def _tts_save_desktop(self):
         import shutil
